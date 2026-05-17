@@ -72,8 +72,8 @@ ctx.drawRadialGradient(highlight,
 //    puts the motif near the *bottom* of the icon — matching the user's request.
 do {
     ctx.saveGState()
-    let cx = side * 0.82
-    let cy = side * 0.15
+    let cx = side * 0.74
+    let cy = side * 0.16
     ctx.translateBy(x: cx, y: cy)
 
     // Color-wheel ring: 6 rainbow wedges.

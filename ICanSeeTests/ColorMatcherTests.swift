@@ -22,9 +22,19 @@ final class ColorMatcherTests: XCTestCase {
         XCTAssertEqual(ColorMatcher.match(red: 1, green: 1, blue: 1).name, "White")
     }
 
-    func testHexFormatting() {
+    func testCompositionForOrange() {
         let m = ColorMatcher.match(red: 1, green: 0.5, blue: 0)
-        XCTAssertEqual(m.hex, "#FF8000")
+        XCTAssertEqual(m.name, "Orange")
+        XCTAssertEqual(m.composition, "Red + Yellow")
+    }
+
+    func testChromaticBlueIsNotCalledGray() {
+        // Washed-out blue that previously matched "Gray" because Lab
+        // distance favored neutrals. Chroma penalty should keep us blue.
+        let m = ColorMatcher.match(red: 0.30, green: 0.40, blue: 0.60)
+        XCTAssertFalse(m.name.contains("Gray"))
+        XCTAssertFalse(m.name == "Black")
+        XCTAssertFalse(m.name == "White")
     }
 
     func testRedGreenDisambiguation() {

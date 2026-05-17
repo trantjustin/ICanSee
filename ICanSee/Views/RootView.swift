@@ -11,6 +11,7 @@ struct RootView: View {
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showFileImporter = false
     @State private var showPhotosPicker = false
+    @State private var showLoadOptions = false
     @State private var inspectorImage: InspectorImage?
 
     var body: some View {
@@ -33,7 +34,26 @@ struct RootView: View {
             camera.requestAccessAndStart()
             if !hasSeenFirstRunGuide { showGuide = true }
         }
-        .onDisappear { camera.stop() }
+        .onChange(of: camera.authState) { _, state in
+            // Keep the screen awake while the camera is live — locking
+            // mid-reading is the most common interruption for the kind of
+            // tasks this app gets used for (matching paint, picking
+            // produce, sorting clothes).
+            UIApplication.shared.isIdleTimerDisabled = (state == .authorized)
+        }
+        .onDisappear {
+            camera.stop()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
+        .confirmationDialog("Load a photo", isPresented: $showLoadOptions, titleVisibility: .visible) {
+            // confirmationDialog handles "set state → present sheet" more
+            // reliably than `Menu { Button {...} }`, which on some iOS
+            // builds dismisses before the picker has bound to the new
+            // state and ends up doing nothing.
+            Button("Choose from Photos") { showPhotosPicker = true }
+            Button("Choose from Files") { showFileImporter = true }
+            Button("Cancel", role: .cancel) {}
+        }
         .sheet(isPresented: $showGuide, onDismiss: { hasSeenFirstRunGuide = true }) {
             FirstRunGuideView()
         }
@@ -129,17 +149,8 @@ struct RootView: View {
     }
 
     private var loadMenu: some View {
-        Menu {
-            Button {
-                showPhotosPicker = true
-            } label: {
-                Label("Choose from Photos", systemImage: "photo.on.rectangle")
-            }
-            Button {
-                showFileImporter = true
-            } label: {
-                Label("Choose from Files", systemImage: "folder")
-            }
+        Button {
+            showLoadOptions = true
         } label: {
             iconButtonLabel(systemName: "photo.on.rectangle.angled")
         }

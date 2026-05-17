@@ -20,9 +20,11 @@ struct ColorReadoutView: View {
 
                 HStack(spacing: 8) {
                     if let match {
-                        Text(match.hex)
-                            .font(.system(.footnote, design: .monospaced))
+                        Text(match.composition)
+                            .font(.footnote)
                             .foregroundStyle(.white.opacity(0.8))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
                     } else {
                         Text("Aim the crosshair at something")
                             .font(.footnote)

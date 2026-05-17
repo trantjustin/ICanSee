@@ -1,0 +1,23 @@
+## Xcode user data
+**/xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+## Build / Derived Data
+build/
+DerivedData/
+*.moved-aside
+
+## Generated project — re-create with `scripts/generate.sh`
+ICanSee.xcodeproj/
+
+## Swift Package Manager
+.swiftpm/
+.build/
+Package.resolved
+
+## macOS
+.DS_Store
+
+## Misc
+*.log

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Support &middot; I Can See!</title>
+<meta name="description" content="Help and FAQ for the I Can See! color identifier app.">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+    <a href="index.html"><img class="icon" src="icon.png" alt="I Can See! app icon"></a>
+    <h1>Support</h1>
+    <p class="tagline">Answers to common questions, plus how to get in touch.</p>
+</header>
+
+<h2>Using the app</h2>
+
+<details class="faq" open>
+    <summary>How do I identify a color?</summary>
+    <p>Open the app and point the camera at the color you're curious about. The crosshair in the middle of the screen marks the pixels being sampled, and the name appears in big text at the bottom &mdash; <em>Red</em>, <em>Teal</em>, <em>Lavender</em>, and so on.</p>
+</details>
+
+<details class="faq">
+    <summary>How do I freeze a reading?</summary>
+    <p>Tap anywhere on the camera preview. The reading freezes so you can read it without holding the phone steady. Tap again to unfreeze.</p>
+</details>
+
+<details class="faq">
+    <summary>How do I check a color in a photo?</summary>
+    <p>Tap the photo button (top-right, the photo icon) and choose <strong>Choose from Photos</strong> or <strong>Choose from Files</strong>. Drag the loupe around the image to identify the color at any specific pixel.</p>
+</details>
+
+<details class="faq">
+    <summary>Why does the same surface get two different names depending on the angle?</summary>
+    <p>Most surfaces aren't a single uniform color &mdash; lighting, shadows, and screen glare shift what the camera actually sees. For the most accurate reading, use diffuse natural light and aim straight at the surface.</p>
+</details>
+
+<h2>Colors &amp; accuracy</h2>
+
+<details class="faq">
+    <summary>How does it pick a color name?</summary>
+    <p>The app samples a small region around the crosshair (about 24×24 pixels), averages the colors, and finds the nearest match in a 31-name palette using <strong>CIE Lab</strong> distance. Lab is roughly perceptually uniform &mdash; meaning it weights hue, lightness, and chroma the way human eyes do &mdash; so dark navy reads as <em>Navy</em> instead of being lumped into <em>Black</em>.</p>
+</details>
+
+<details class="faq">
+    <summary>Why isn't <em>my</em> color name in the palette?</summary>
+    <p>The palette is deliberately small. It only includes color names a typical English speaker would say out loud (no <em>papayawhip</em> or <em>gainsboro</em>). For people with color vision deficiency, a precise but unfamiliar name is worse than no name &mdash; you can't act on a label you don't recognise.</p>
+</details>
+
+<details class="faq">
+    <summary>Does the app correct for my type of colorblindness?</summary>
+    <p>No. The app reports what the camera actually sees, in standard color names. The point is to give you ground truth, not to simulate what you'd see if you had typical color vision. If "the apple is red" is what you need to know, that's what the readout will say.</p>
+</details>
+
+<h2>Privacy &amp; data</h2>
+
+<details class="faq">
+    <summary>Where does the camera feed go?</summary>
+    <p>Nowhere. Every frame is processed on your iPhone and discarded as soon as the next one arrives. The app does not record video, save photos automatically, or upload anything to a server.</p>
+</details>
+
+<details class="faq">
+    <summary>What about the photos I load?</summary>
+    <p>They're handled by the standard iOS Photos picker and Files importer &mdash; system UIs that hand the app a single image at a time. The app never sees the rest of your library, and the loaded image stays in memory only while the inspector is open.</p>
+</details>
+
+<details class="faq">
+    <summary>What analytics do you collect?</summary>
+    <p>Only four anonymous signals: <code>App.launch</code>, <code>Camera.authorized</code>/<code>Camera.denied</code>, and <code>Reading.frozen</code>/<code>Reading.resumed</code>. Never the color, hex code, photo, or any image data. See the <a href="privacy.html">privacy page</a> for details.</p>
+</details>
+
+<h2>System requirements</h2>
+
+<details class="faq">
+    <summary>What iPhone and iOS version do I need?</summary>
+    <p>I Can See! requires <strong>iOS 17.0 or later</strong> on iPhone. iPad and Apple Watch are not currently supported. The camera mode needs a working rear camera; photo mode works on any iPhone.</p>
+</details>
+
+<hr>
+
+<h2>Still need help?</h2>
+<div class="card">
+    <p>
+        Email the maintainer with your iOS version, iPhone model, and a description of what happened.
+    </p>
+    <p>
+        <a class="cta" href="mailto:justin.trant@me.com">Email support</a>
+    </p>
+</div>
+
+<footer>
+    <p>Last updated 17 May 2026</p>
+    <p>
+        <a href="index.html">Home</a> &nbsp;&middot;&nbsp;
+        <a href="privacy.html">Privacy</a>
+    </p>
+    <p>&copy; I Can See!</p>
+</footer>
+
+</div>
+</body>
+</html>

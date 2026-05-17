@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy &middot; I Can See!</title>
+<meta name="description" content="Privacy statement for I Can See! — your camera and photos stay on your device.">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+    <a href="index.html"><img class="icon" src="icon.png" alt="I Can See! app icon"></a>
+    <h1>Privacy</h1>
+    <p class="tagline">Short version: your camera feed and your photos stay on your device.</p>
+</header>
+
+<h2>What we store</h2>
+<div class="card">
+    <p>
+        Nothing. I Can See! does not store the camera feed, the photos you load, or the colors you identify. Each color reading is computed on-device in real time and discarded as soon as the next frame arrives.
+    </p>
+    <p style="margin-bottom: 0;">
+        The only thing the app saves between launches is whether you've already dismissed the first-run guide, kept in a single on-device preference.
+    </p>
+</div>
+
+<h2>What we don't do</h2>
+<ul>
+    <li>No accounts. There is nothing to sign up for.</li>
+    <li>No servers receive your camera feed or photos.</li>
+    <li>No advertising IDs, no IDFA, no third-party tracking.</li>
+    <li>No location, contacts, microphone, or HealthKit access.</li>
+</ul>
+
+<h2>Camera and photo permissions</h2>
+<div class="card">
+    <p>
+        The app asks for <strong>camera access</strong> so it can show you the live preview and sample the color at the centre of the frame. Camera frames are processed entirely on-device and never leave your iPhone.
+    </p>
+    <p style="margin-bottom: 0;">
+        The app uses the standard iOS <strong>Photos picker</strong> and <strong>Files importer</strong> for photo-inspector mode. These are system-provided UIs &mdash; the app only ever sees the single image you pick, not the rest of your library.
+    </p>
+</div>
+
+<h2>Anonymized usage analytics</h2>
+<div class="card">
+    <p>
+        I Can See! sends a small number of anonymous usage signals to <a href="https://telemetrydeck.com" rel="noopener">TelemetryDeck</a>, a privacy-focused analytics service. The signals are limited to:
+    </p>
+    <ul>
+        <li><code>App.launch</code> &mdash; the app opened.</li>
+        <li><code>Camera.authorized</code> / <code>Camera.denied</code> &mdash; whether the camera permission was granted.</li>
+        <li><code>Reading.frozen</code> / <code>Reading.resumed</code> &mdash; you tapped to freeze or unfreeze the live reading.</li>
+    </ul>
+    <p style="margin-bottom: 0;">
+        Never sent: pixel values, color names, hex codes, photo contents, image filenames, or anything else derived from what you point the camera at. TelemetryDeck does not receive your IP, IDFA, or any reversible device identifier &mdash; it sees only a salted, hashed token.
+    </p>
+</div>
+
+<h2>Children</h2>
+<p>
+    I Can See! is rated 4+ and is not directed to children under 13. It contains no advertising, no in-app purchases, and no social features.
+</p>
+
+<h2>Contact</h2>
+<p>
+    Questions about privacy? Email <a href="mailto:justin.trant@me.com">justin.trant@me.com</a>.
+</p>
+
+<hr>
+<footer>
+    <p>Last updated 17 May 2026</p>
+    <p>
+        <a href="index.html">Home</a> &nbsp;&middot;&nbsp;
+        <a href="support.html">Support</a>
+    </p>
+    <p>&copy; I Can See!</p>
+</footer>
+
+</div>
+</body>
+</html>

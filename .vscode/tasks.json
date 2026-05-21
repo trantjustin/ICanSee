@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Xcode: Open Current File",
+      "type": "shell",
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "xed --line ${lineNumber} \"${file}\""
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Xcode: Open Project",
+      "type": "shell",
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "xed \"${workspaceFolder}/ICanSee.xcodeproj\""
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

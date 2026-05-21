@@ -51,7 +51,7 @@ struct PhotoInspectorView: View {
             Color.black.ignoresSafeArea()
 
             GeometryReader { proxy in
-                let displayRect = aspectFitRect(imageSize: image.size, in: proxy.size)
+                let displayRect = PhotoInspectorGeometry.aspectFitRect(imageSize: image.size, in: proxy.size)
                 let anchor = dropperUnitPoint(container: proxy.size, displayRect: displayRect)
                 let dropperScreenPoint = imageToScreen(dropperImagePoint,
                                                        displayRect: displayRect,
@@ -140,7 +140,7 @@ struct PhotoInspectorView: View {
 
             VStack {
                 Spacer()
-                ColorReadoutView(match: match, sampledColor: sampledColor, isFrozen: false)
+                ColorReadoutView(match: match, sampledColor: sampledColor)
                     .padding(.bottom, safeBottom + 8)
             }
         }
@@ -179,7 +179,51 @@ struct PhotoInspectorView: View {
 
     // MARK: - Coordinate transforms
 
-    private func aspectFitRect(imageSize: CGSize, in container: CGSize) -> CGRect {
+    /// Where (in unit-point form) the image's scaleEffect should anchor.
+    /// We pin the anchor to the dropper's *unzoomed* screen position, so
+    /// pinching never drags the inspected pixel out from under the loupe.
+    private func dropperUnitPoint(container: CGSize, displayRect: CGRect) -> UnitPoint {
+        PhotoInspectorGeometry.dropperUnitPoint(
+            dropperImagePoint: dropperImagePoint,
+            imageSize: image.size,
+            container: container,
+            displayRect: displayRect
+        )
+    }
+
+    private func imageToScreen(_ p: CGPoint,
+                               displayRect: CGRect,
+                               container: CGSize,
+                               anchor: UnitPoint,
+                               zoom: CGFloat) -> CGPoint {
+        PhotoInspectorGeometry.imageToScreen(
+            p,
+            imageSize: image.size,
+            displayRect: displayRect,
+            container: container,
+            anchor: anchor,
+            zoom: zoom
+        )
+    }
+
+    private func screenToImage(_ p: CGPoint,
+                               displayRect: CGRect,
+                               container: CGSize,
+                               anchor: UnitPoint,
+                               zoom: CGFloat) -> CGPoint {
+        PhotoInspectorGeometry.screenToImage(
+            p,
+            imageSize: image.size,
+            displayRect: displayRect,
+            container: container,
+            anchor: anchor,
+            zoom: zoom
+        )
+    }
+}
+
+enum PhotoInspectorGeometry {
+    static func aspectFitRect(imageSize: CGSize, in container: CGSize) -> CGRect {
         guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
         let scale = min(container.width / imageSize.width, container.height / imageSize.height)
         let w = imageSize.width * scale
@@ -189,27 +233,32 @@ struct PhotoInspectorView: View {
                       width: w, height: h)
     }
 
-    /// Where (in unit-point form) the image's scaleEffect should anchor.
-    /// We pin the anchor to the dropper's *unzoomed* screen position, so
-    /// pinching never drags the inspected pixel out from under the loupe.
-    private func dropperUnitPoint(container: CGSize, displayRect: CGRect) -> UnitPoint {
+    static func dropperUnitPoint(
+        dropperImagePoint: CGPoint,
+        imageSize: CGSize,
+        container: CGSize,
+        displayRect: CGRect
+    ) -> UnitPoint {
         guard container.width > 0, container.height > 0,
-              image.size.width > 0, image.size.height > 0 else { return .center }
-        let nx = dropperImagePoint.x / image.size.width
-        let ny = dropperImagePoint.y / image.size.height
+              imageSize.width > 0, imageSize.height > 0 else { return .center }
+        let nx = dropperImagePoint.x / imageSize.width
+        let ny = dropperImagePoint.y / imageSize.height
         let sx = displayRect.minX + nx * displayRect.width
         let sy = displayRect.minY + ny * displayRect.height
         return UnitPoint(x: sx / container.width, y: sy / container.height)
     }
 
-    private func imageToScreen(_ p: CGPoint,
-                               displayRect: CGRect,
-                               container: CGSize,
-                               anchor: UnitPoint,
-                               zoom: CGFloat) -> CGPoint {
-        guard image.size.width > 0, image.size.height > 0 else { return .zero }
-        let nx = p.x / image.size.width
-        let ny = p.y / image.size.height
+    static func imageToScreen(
+        _ point: CGPoint,
+        imageSize: CGSize,
+        displayRect: CGRect,
+        container: CGSize,
+        anchor: UnitPoint,
+        zoom: CGFloat
+    ) -> CGPoint {
+        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
+        let nx = point.x / imageSize.width
+        let ny = point.y / imageSize.height
         let unscaledX = displayRect.minX + nx * displayRect.width
         let unscaledY = displayRect.minY + ny * displayRect.height
         let ax = anchor.x * container.width
@@ -218,19 +267,22 @@ struct PhotoInspectorView: View {
                        y: (unscaledY - ay) * zoom + ay)
     }
 
-    private func screenToImage(_ p: CGPoint,
-                               displayRect: CGRect,
-                               container: CGSize,
-                               anchor: UnitPoint,
-                               zoom: CGFloat) -> CGPoint {
+    static func screenToImage(
+        _ point: CGPoint,
+        imageSize: CGSize,
+        displayRect: CGRect,
+        container: CGSize,
+        anchor: UnitPoint,
+        zoom: CGFloat
+    ) -> CGPoint {
         let ax = anchor.x * container.width
         let ay = anchor.y * container.height
-        let unscaled = CGPoint(x: (p.x - ax) / zoom + ax,
-                               y: (p.y - ay) / zoom + ay)
+        let unscaled = CGPoint(x: (point.x - ax) / zoom + ax,
+                               y: (point.y - ay) / zoom + ay)
         guard displayRect.width > 0, displayRect.height > 0 else { return .zero }
         let nx = (unscaled.x - displayRect.minX) / displayRect.width
         let ny = (unscaled.y - displayRect.minY) / displayRect.height
-        return CGPoint(x: nx * image.size.width, y: ny * image.size.height)
+        return CGPoint(x: nx * imageSize.width, y: ny * imageSize.height)
     }
 }
 

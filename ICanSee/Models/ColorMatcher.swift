@@ -2,24 +2,58 @@ import Foundation
 import simd
 
 /// Maps an sRGB sample to the nearest entry in `NamedColor.palette` using
-/// CIE Lab distance with a chroma penalty.
+/// hue-weighted Lab distance, a chroma penalty, and a primary-name bonus.
 ///
-/// Plain Euclidean Lab distance (CIEDE76) gets the broad strokes right
-/// but has one failure mode that bites users: a mildly chromatic sample
-/// (say, a faded blue under warm lighting) can sit closer to neutral
-/// "Gray" than to any chromatic candidate, so the answer becomes "Gray"
-/// even though the user is clearly pointing at something blue. We add a
-/// **chroma penalty**: if the sample has appreciable chroma, candidates
-/// whose own chroma is much lower take a distance penalty proportional
-/// to the gap. Pure grays get pushed out of the running for chromatic
-/// samples without affecting genuinely grey samples.
+/// Plain Euclidean Lab distance (CIEDE76) has three failure modes that
+/// hurt the people this app is for:
+///
+/// 1. **Lightness dominates hue.** A slightly underexposed bright red
+///    sits closer in raw Lab to Maroon than to Red even though a typical
+///    speaker would call it "red". Auto-exposure routinely knocks
+///    10-20 L* off a saturated surface.
+/// 2. **Neutrals win against mildly chromatic samples.** A faded blue
+///    under warm lighting can sit closer to Gray than to any blue.
+/// 3. **Off-axis darker variants win against canonical names.** Even
+///    after L* weighting, a mid-saturation yellow can land closer in a/b
+///    to Olive than to Yellow, because Yellow's b* is unusually high.
+///    The user's mental model is "yellow", not "olive".
+///
+/// Fixes:
+/// - **Lightness weight 0.6** down-weights ΔL*, so hue dominates.
+/// - **Linear chroma penalty** keeps neutrals from sneaking in.
+/// - **Primary bonus** (`-primaryBonus` distance for entries flagged
+///   `isPrimary` in the palette) tips ties toward everyday colour names
+///   like Red / Yellow / Blue instead of Maroon / Olive / Navy.
 enum ColorMatcher {
+    private struct PaletteVector {
+        let color: NamedColor
+        let lab: SIMD3<Double>
+        let chroma: Double
+    }
+
     struct Match {
         let name: String
         /// e.g. "Red + Yellow" — what primaries/neutrals mix to make this.
         let composition: String
         let confidence: Double  // 0...1, 1 = exact, 0 = on a boundary
     }
+
+    /// How much an L* difference contributes to the Euclidean sum, relative
+    /// to a/b. 1.0 = standard CIEDE76. Less than 1.0 = hue dominates.
+    private static let lightnessWeight: Double = 0.6
+    /// Distance discount applied to palette entries flagged as everyday
+    /// colour names. 18 was chosen empirically: enough to overcome the
+    /// ~5-15 L* gap that auto-exposure tends to introduce, not so much
+    /// that genuinely-darker samples (a true Maroon, a real Olive) lose
+    /// to their primary cousins.
+    private static let primaryBonus: Double = 18
+    private static let paletteVectors: [PaletteVector] = {
+        NamedColor.palette.map { candidate in
+            let lab = labFromSRGB(r: candidate.red, g: candidate.green, b: candidate.blue)
+            let chroma = sqrt(lab.y * lab.y + lab.z * lab.z)
+            return PaletteVector(color: candidate, lab: lab, chroma: chroma)
+        }
+    }()
 
     /// `red`, `green`, `blue` are sRGB in 0...1.
     static func match(red: Double, green: Double, blue: Double) -> Match {
@@ -30,10 +64,13 @@ enum ColorMatcher {
         var bestDistance = Double.infinity
         var secondDistance = Double.infinity
 
-        for (i, candidate) in NamedColor.palette.enumerated() {
-            let candidateLab = labFromSRGB(r: candidate.red, g: candidate.green, b: candidate.blue)
-            let candidateChroma = sqrt(candidateLab.y * candidateLab.y + candidateLab.z * candidateLab.z)
-            let d = simd_distance(sampleLab, candidateLab) + chromaPenalty(sample: sampleChroma, candidate: candidateChroma)
+        for (i, candidate) in paletteVectors.enumerated() {
+            let dL = (sampleLab.x - candidate.lab.x) * lightnessWeight
+            let da = sampleLab.y - candidate.lab.y
+            let db = sampleLab.z - candidate.lab.z
+            let labDistance = sqrt(dL * dL + da * da + db * db)
+            let bonus = candidate.color.isPrimary ? primaryBonus : 0
+            let d = labDistance + chromaPenalty(sample: sampleChroma, candidate: candidate.chroma) - bonus
             if d < bestDistance {
                 secondDistance = bestDistance
                 bestDistance = d
@@ -43,22 +80,32 @@ enum ColorMatcher {
             }
         }
 
-        let best = NamedColor.palette[bestIndex]
+        let best = paletteVectors[bestIndex].color
         let margin = max(0, secondDistance - bestDistance)
         let confidence = min(1.0, margin / 25.0)
         return Match(name: best.name, composition: best.composition, confidence: confidence)
     }
 
     /// Penalty added to a candidate when the sample has more chroma than
-    /// the candidate does — i.e. a chromatic sample paired with a gray
-    /// candidate. The 0.6 coefficient was chosen so a sample chroma of
-    /// ~10 (a fairly washed-out blue) makes Gray (chroma 0) lose by a
-    /// margin comparable to the chromatic-blue alternatives, without
-    /// being so harsh that a true near-gray gets misnamed.
+    /// the candidate does.
+    ///
+    /// Two regimes:
+    /// - **Sample chroma < `neutralThreshold`**: light penalty (×0.5).
+    ///   Samples in this band are *near-neutral with a hint of warmth or
+    ///   coolness* — a slight-warm-gray speaker, a slightly-blue shadow.
+    ///   A heavy penalty here pushes neutrals out and the matcher
+    ///   incorrectly snaps to Tan / Pink / Sky Blue. A light touch keeps
+    ///   "Gray" available while still preferring chromatic candidates
+    ///   when they're genuinely closer.
+    /// - **Sample chroma ≥ `neutralThreshold`**: heavy penalty (×2.0).
+    ///   The sample is clearly chromatic; neutrals must not win on Lab
+    ///   distance alone (e.g. dim Navy or dim Brown landing on Black).
+    private static let neutralThreshold: Double = 10
+
     private static func chromaPenalty(sample: Double, candidate: Double) -> Double {
         let gap = sample - candidate
         guard gap > 0 else { return 0 }
-        return gap * 0.6
+        return sample < neutralThreshold ? gap * 0.5 : gap * 2.0
     }
 
     // MARK: - sRGB → Lab

@@ -29,6 +29,18 @@
         }
       }
     },
+    "B: %@" : {
+
+    },
+    "Calibrate colors" : {
+
+    },
+    "Calibrate for Accuracy" : {
+
+    },
+    "Calibration Gains" : {
+
+    },
     "Camera access needed" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -144,7 +156,23 @@
         }
       }
     },
+    "Correct color" : {
+
+    },
+    "Current calibration" : {
+
+    },
+    "Current Photo Reading" : {
+
+    },
+    "Current Reading" : {
+
+    },
+    "DIAG" : {
+
+    },
     "FROZEN" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -171,6 +199,9 @@
           }
         }
       }
+    },
+    "G: %@" : {
+
     },
     "Get started" : {
       "extractionState" : "stale",
@@ -401,6 +432,9 @@
         }
       }
     },
+    "Photo calibration uses the same gains as live camera. Changes apply to both." : {
+
+    },
     "Point at a color" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -430,6 +464,9 @@
         }
       }
     },
+    "Point at something white or neutral gray, then tap Calibrate to baseline the colors." : {
+
+    },
     "Point your camera at anything. The crosshair in the middle tells you what color it is — useful when red and green, or blue and purple, look the same to you." : {
       "localizations" : {
         "en" : {
@@ -458,7 +495,26 @@
         }
       }
     },
+    "Point your camera at something pure white — a sheet of paper, a wall, or a white object. This helps the app understand what \"white\" looks like in your current lighting." : {
+
+    },
+    "R: %@" : {
+
+    },
+    "R: %@ G: %@ B: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "R: %1$@ G: %2$@ B: %3$@"
+          }
+        }
+      }
+    },
     "Reset zoom" : {
+
+    },
+    "Settings" : {
 
     },
     "This device doesn't have a usable camera, but you can still load a photo to inspect." : {
@@ -489,6 +545,9 @@
           }
         }
       }
+    },
+    "What's New" : {
+
     }
   },
   "version" : "1.0"

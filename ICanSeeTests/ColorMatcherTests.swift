@@ -45,6 +45,18 @@ final class ColorMatcherTests: XCTestCase {
         XCTAssertEqual(m.name, "Yellow")
     }
 
+    func testBrightYellowDoesNotSlipToOlive() {
+        // Indoor samples with slightly lowered saturation but strong yellow
+        // axis should still map to Yellow, not Olive.
+        let m = ColorMatcher.match(red: 0.80, green: 0.72, blue: 0.12)
+        XCTAssertEqual(m.name, "Yellow")
+    }
+
+    func testOliveSampleStillMapsToOlive() {
+        let m = ColorMatcher.match(red: 0.45, green: 0.48, blue: 0.10)
+        XCTAssertEqual(m.name, "Olive")
+    }
+
     func testUnderExposedRedStaysRed() {
         // "One level darker" regression — Red was being reported as Maroon
         // for moderate-brightness red samples.
@@ -97,6 +109,11 @@ final class ColorMatcherTests: XCTestCase {
         let red = ColorMatcher.match(red: 0.80, green: 0.15, blue: 0.15)
         let green = ColorMatcher.match(red: 0.15, green: 0.60, blue: 0.20)
         XCTAssertNotEqual(red.name, green.name)
+    }
+
+    func testBoundarySampleSurfacesAlternateName() {
+        let m = ColorMatcher.match(red: 0.72, green: 0.64, blue: 0.16)
+        XCTAssertNotNil(m.alternateName)
     }
 
     func testMatcherBenchmarkProbe() {

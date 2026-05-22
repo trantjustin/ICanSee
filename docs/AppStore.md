@@ -137,8 +137,9 @@ needs a decision from you before submission.
 > your surroundings."
 >
 > No account, no sign-in, no in-app purchase, no network calls except
-> anonymous TelemetryDeck signals (App.launch, Camera.authorized,
-> Reading.frozen). No user-generated content is ever transmitted.
+> anonymous TelemetryDeck signals (App.launch, Camera.authorized/
+> Camera.denied, Reading.corrected, Reading.correctionCleared). No
+> user-generated content is ever transmitted.
 
 ---
 
@@ -181,7 +182,8 @@ Then fill out the matrix below. Anything not listed = "Not Collected".
 - **What is sent?** Anonymous event signals only:
   - `App.launch`
   - `Camera.authorized` / `Camera.denied`
-  - `Reading.frozen` / `Reading.resumed`
+  - `Reading.corrected` / `Reading.correctionCleared` (with `from`/`to`
+    color label names only)
 - TelemetryDeck hashes the device identifier with a salt; Anthropic
   receives no raw IDFA, IP, or reversible device ID.
 

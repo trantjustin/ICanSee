@@ -17,14 +17,31 @@ struct PhotoInspectorView: View {
     @State private var match: ColorMatcher.Match?
     @State private var sampledColor: Color = .gray
 
+    /// Motion settling for photo inspector (delay color match when dragging)
+    private let smoothingAlpha: Double = 0.2
+    private let motionThreshold: Double = 0.05
+    private let settlingFrames: Int = 6
+    @State private var settlingCounter: Int = 0
+    @State private var smoothedR: Double = 0
+    @State private var smoothedG: Double = 0
+    @State private var smoothedB: Double = 0
+    @State private var prevSmoothedR: Double = 0
+    @State private var prevSmoothedG: Double = 0
+    @State private var prevSmoothedB: Double = 0
+
     /// Zoom is anchored on the dropper, so the pixel under the dropper
     /// stays put while pinching. 1...8 keeps things usable on small phones.
     @State private var zoom: CGFloat = 1
     @State private var pinchBase: CGFloat = 1
+    @State private var showCalibrationSheet = false
 
     private let minZoom: CGFloat = 1
     private let maxZoom: CGFloat = 8
     private let baseLoupeSize: CGFloat = 64
+    @AppStorage("isDiagnosticModeEnabled") private var isDiagnosticModeEnabled = false
+    @AppStorage("redGain") private var redGain: Double = 1.0
+    @AppStorage("greenGain") private var greenGain: Double = 1.0
+    @AppStorage("blueGain") private var blueGain: Double = 1.0
 
     /// Reads the actual screen safe-area inset from UIKit. Inside a
     /// `fullScreenCover`, SwiftUI's `GeometryReader.safeAreaInsets` and
@@ -96,7 +113,7 @@ struct PhotoInspectorView: View {
                 .onAppear {
                     if !hasPlacedDropper {
                         dropperImagePoint = CGPoint(x: image.size.width / 2, y: image.size.height / 2)
-                        sample()
+                        sample(force: true)
                     }
                 }
             }
@@ -134,6 +151,26 @@ struct PhotoInspectorView: View {
                     .transition(.opacity.combined(with: .scale))
                     .accessibilityLabel(Text("Reset zoom"))
                 }
+
+                // Settings menu for photo inspector
+                Menu {
+                    Button {
+                        showCalibrationSheet = true
+                    } label: {
+                        Label("Calibrate Colors", systemImage: "eyedropper.halffull")
+                    }
+
+                    Toggle("Diagnostic Mode", isOn: $isDiagnosticModeEnabled)
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                        .environment(\.colorScheme, .dark)
+                }
+                .accessibilityLabel(Text("Settings"))
             }
             .padding(.horizontal, 12)
             .padding(.top, safeTop + 6)
@@ -145,6 +182,16 @@ struct PhotoInspectorView: View {
             }
         }
         .ignoresSafeArea()
+        .sheet(isPresented: $showCalibrationSheet) {
+            PhotoCalibrationView(
+                redGain: $redGain,
+                greenGain: $greenGain,
+                blueGain: $blueGain,
+                currentRed: smoothedR,
+                currentGreen: smoothedG,
+                currentBlue: smoothedB
+            )
+        }
     }
 
     // MARK: - Gestures
@@ -161,20 +208,78 @@ struct PhotoInspectorView: View {
             x: min(max(imagePoint.x, 0), image.size.width),
             y: min(max(imagePoint.y, 0), image.size.height)
         )
+
+        // Detect significant movement to reset smoothing
+        let moveDistance = hypot(clamped.x - dropperImagePoint.x, clamped.y - dropperImagePoint.y)
+        let wasFirstPlacement = !hasPlacedDropper
+
         dropperImagePoint = clamped
         hasPlacedDropper = true
+
+        // Reset smoothing on significant move or first placement
+        if wasFirstPlacement || moveDistance > 20 {
+            smoothedR = 0
+            smoothedG = 0
+            smoothedB = 0
+            settlingCounter = 0
+        }
+
         sample()
     }
 
-    private func sample() {
+    private func sample(force: Bool = false) {
         // 3×3 average at zoom 1, down to a single pixel at high zoom. The
         // dropper's center dot promises a point sample; a larger radius
         // pulls in surrounding colors (e.g. yellow petal centre reads as
         // the surrounding magenta), which is what the user reported.
         let radius = max(1, Int((2 / zoom).rounded()))
         guard let avg = ImageSampler.averageColor(in: image, at: dropperImagePoint, radius: radius) else { return }
-        sampledColor = Color(.sRGB, red: avg.r, green: avg.g, blue: avg.b, opacity: 1)
-        match = ColorMatcher.match(red: avg.r, green: avg.g, blue: avg.b)
+
+        // Initialize smoothed values on first sample or after reset
+        let wasReset = smoothedR == 0 && smoothedG == 0 && smoothedB == 0
+        if !hasPlacedDropper || wasReset {
+            smoothedR = avg.r
+            smoothedG = avg.g
+            smoothedB = avg.b
+        } else {
+            // Temporal smoothing
+            smoothedR = (smoothingAlpha * avg.r) + ((1.0 - smoothingAlpha) * smoothedR)
+            smoothedG = (smoothingAlpha * avg.g) + ((1.0 - smoothingAlpha) * smoothedG)
+            smoothedB = (smoothingAlpha * avg.b) + ((1.0 - smoothingAlpha) * smoothedB)
+        }
+
+        // Update display color immediately (for loupe feedback)
+        sampledColor = Color(.sRGB, red: smoothedR, green: smoothedG, blue: smoothedB, opacity: 1)
+
+        if force {
+            // Immediate match on initial placement
+            match = ColorMatcher.match(red: smoothedR, green: smoothedG, blue: smoothedB)
+            settlingCounter = settlingFrames // Pre-settle
+        } else {
+            // Detect motion by comparing to previous frame
+            let deltaR = abs(smoothedR - prevSmoothedR)
+            let deltaG = abs(smoothedG - prevSmoothedG)
+            let deltaB = abs(smoothedB - prevSmoothedB)
+            let maxDelta = max(deltaR, max(deltaG, deltaB))
+
+            if maxDelta > motionThreshold {
+                // Motion detected — reset settling counter
+                settlingCounter = 0
+            } else {
+                // Stable — increment counter up to settling threshold
+                settlingCounter = min(settlingCounter + 1, settlingFrames)
+            }
+
+            // Update match only when settled
+            if settlingCounter >= settlingFrames {
+                match = ColorMatcher.match(red: smoothedR, green: smoothedG, blue: smoothedB)
+            }
+        }
+
+        // Store previous values
+        prevSmoothedR = smoothedR
+        prevSmoothedG = smoothedG
+        prevSmoothedB = smoothedB
     }
 
     // MARK: - Coordinate transforms
@@ -283,6 +388,92 @@ enum PhotoInspectorGeometry {
         let nx = (unscaled.x - displayRect.minX) / displayRect.width
         let ny = (unscaled.y - displayRect.minY) / displayRect.height
         return CGPoint(x: nx * imageSize.width, y: ny * imageSize.height)
+    }
+}
+
+private struct PhotoCalibrationView: View {
+    @Binding var redGain: Double
+    @Binding var greenGain: Double
+    @Binding var blueGain: Double
+    let currentRed: Double
+    let currentGreen: Double
+    let currentBlue: Double
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text("Photo calibration uses the same gains as live camera. Changes apply to both.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                VStack(spacing: 8) {
+                    Text("Current Photo Reading")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.sRGB, red: currentRed, green: currentGreen, blue: currentBlue, opacity: 1))
+                        .frame(width: 80, height: 80)
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.2), lineWidth: 1))
+
+                    HStack(spacing: 12) {
+                        Text("R: \(Int(currentRed * 255))")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.red)
+                        Text("G: \(Int(currentGreen * 255))")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.green)
+                        Text("B: \(Int(currentBlue * 255))")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.blue)
+                    }
+                }
+
+                Divider()
+
+                VStack(spacing: 12) {
+                    Text("Calibration Gains")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 20) {
+                        gainLabel("R", value: redGain, color: .red)
+                        gainLabel("G", value: greenGain, color: .green)
+                        gainLabel("B", value: blueGain, color: .blue)
+                    }
+                }
+
+                Spacer()
+
+                Button("Reset to Default") {
+                    redGain = 1.0
+                    greenGain = 1.0
+                    blueGain = 1.0
+                }
+                .buttonStyle(BorderedProminentButtonStyle())
+                .controlSize(.large)
+            }
+            .padding()
+            .navigationTitle("Color Calibration")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func gainLabel(_ label: String, value: Double, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(label)
+                .font(.caption.bold())
+                .foregroundStyle(color)
+            Text(String(format: "%.2f", value))
+                .font(.caption.monospaced())
+        }
     }
 }
 

@@ -6,13 +6,25 @@ import UniformTypeIdentifiers
 struct RootView: View {
     @StateObject private var camera = CameraService()
     @AppStorage("hasSeenFirstRunGuide") private var hasSeenFirstRunGuide = false
+    @AppStorage("hasSeenCalibrationPrompt") private var hasSeenCalibrationPrompt = false
+    @AppStorage("lastSeenVersion") private var lastSeenVersion: String = ""
+    @AppStorage("isDiagnosticModeEnabled") private var isDiagnosticModeEnabled = false
+    @AppStorage("redGain") private var redGain: Double = 1.0
+    @AppStorage("greenGain") private var greenGain: Double = 1.0
+    @AppStorage("blueGain") private var blueGain: Double = 1.0
     @State private var showGuide = false
+    @State private var showWhatsNew = false
+    @State private var showCalibrationSheet = false
 
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showFileImporter = false
     @State private var showPhotosPicker = false
     @State private var showLoadOptions = false
     @State private var inspectorImage: InspectorImage?
+    /// Zoom factor at the start of the current pinch gesture. The
+    /// MagnificationGesture's `scale` is multiplicative against this so
+    /// release-and-re-pinch keeps cumulative zoom.
+    @State private var liveZoomBase: CGFloat = 1
 
     var body: some View {
         ZStack {
@@ -31,8 +43,17 @@ struct RootView: View {
         }
         .preferredColorScheme(.dark)
         .task {
+            camera.redGain = redGain
+            camera.greenGain = greenGain
+            camera.blueGain = blueGain
             camera.requestAccessAndStart()
-            if !hasSeenFirstRunGuide { showGuide = true }
+            // Show guide for new users, or existing users who haven't seen calibration
+            if !hasSeenFirstRunGuide || !hasSeenCalibrationPrompt {
+                showGuide = true
+            } else if isNewVersion {
+                // Show what's new for updating users who've already seen the guide
+                showWhatsNew = true
+            }
         }
         .onChange(of: camera.authState) { _, state in
             // Keep the screen awake while the camera is live — locking
@@ -41,6 +62,9 @@ struct RootView: View {
             // produce, sorting clothes).
             UIApplication.shared.isIdleTimerDisabled = (state == .authorized)
         }
+        .onChange(of: redGain) { _, newValue in camera.redGain = newValue }
+        .onChange(of: greenGain) { _, newValue in camera.greenGain = newValue }
+        .onChange(of: blueGain) { _, newValue in camera.blueGain = newValue }
         .onDisappear {
             camera.stop()
             UIApplication.shared.isIdleTimerDisabled = false
@@ -54,11 +78,27 @@ struct RootView: View {
             Button("Choose from Files") { showFileImporter = true }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showGuide, onDismiss: { hasSeenFirstRunGuide = true }) {
+        .sheet(isPresented: $showGuide, onDismiss: {
+            hasSeenFirstRunGuide = true
+            hasSeenCalibrationPrompt = true
+        }) {
             FirstRunGuideView()
         }
         .fullScreenCover(item: $inspectorImage) { wrapper in
             PhotoInspectorView(image: wrapper.image)
+        }
+        .sheet(isPresented: $showCalibrationSheet) {
+            RootCalibrationView(
+                redGain: $redGain,
+                greenGain: $greenGain,
+                blueGain: $blueGain,
+                currentRed: Double(camera.sampledRed),
+                currentGreen: Double(camera.sampledGreen),
+                currentBlue: Double(camera.sampledBlue)
+            )
+        }
+        .fullScreenCover(isPresented: $showWhatsNew) {
+            WhatsNewView()
         }
         .photosPicker(isPresented: $showPhotosPicker, selection: $photoPickerItem, matching: .images)
         .onChange(of: photoPickerItem) { _, newItem in
@@ -107,13 +147,23 @@ struct RootView: View {
         ZStack {
             CameraPreviewView(session: camera.session)
                 .ignoresSafeArea()
-                .onTapGesture {
-                    camera.isFrozen.toggle()
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                }
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { scale in
+                            camera.setZoom(liveZoomBase * scale)
+                        }
+                        .onEnded { _ in
+                            liveZoomBase = camera.zoomFactor
+                        }
+                )
 
+            // Reticle shrinks with zoom so the target stays a target rather
+            // than swallowing the thing you're trying to identify. Matches
+            // the photo-inspector loupe's behaviour. Floor at 36 pt so it
+            // stays visible at the 5× cap.
             Reticle()
-                .frame(width: 84, height: 84)
+                .frame(width: max(36, 84 / camera.zoomFactor),
+                       height: max(36, 84 / camera.zoomFactor))
                 .allowsHitTesting(false)
                 .shadow(color: .black.opacity(0.5), radius: 6)
 
@@ -126,24 +176,48 @@ struct RootView: View {
                                         red: camera.sampledRed,
                                         green: camera.sampledGreen,
                                         blue: camera.sampledBlue,
-                                        opacity: 1),
-                    isFrozen: camera.isFrozen
+                                        opacity: 1)
                 )
                 .padding(.bottom, 28)
             }
         }
     }
 
+    // MARK: - Version check
+    private var isNewVersion: Bool {
+        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        return lastSeenVersion != current && !lastSeenVersion.isEmpty
+    }
+
     // MARK: - Top bar
     private var topBar: some View {
         HStack(spacing: 10) {
+            if camera.zoomFactor > 1.05 {
+                Button {
+                    liveZoomBase = 1
+                    camera.setZoom(1)
+                } label: {
+                    Text(String(format: "%.1f×", camera.zoomFactor))
+                        .font(.system(.footnote, design: .rounded).weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .frame(height: 40)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                        .environment(\.colorScheme, .dark)
+                }
+                .transition(.opacity.combined(with: .scale))
+                .accessibilityLabel(Text("Reset zoom"))
+            }
             Spacer()
             loadMenu
+            settingsMenu
             iconButton(systemName: "questionmark") {
                 showGuide = true
             }
             .accessibilityLabel(Text("Help"))
         }
+        .animation(.easeInOut(duration: 0.2), value: camera.zoomFactor > 1.05)
         .padding(.horizontal, 14)
         .padding(.top, 8)
     }
@@ -155,6 +229,21 @@ struct RootView: View {
             iconButtonLabel(systemName: "photo.on.rectangle.angled")
         }
         .accessibilityLabel(Text("Load a photo"))
+    }
+
+    private var settingsMenu: some View {
+        Menu {
+            Button {
+                showCalibrationSheet = true
+            } label: {
+                Label("Calibrate Colors", systemImage: "eyedropper.halffull")
+            }
+
+            Toggle("Diagnostic Mode", isOn: $isDiagnosticModeEnabled)
+        } label: {
+            iconButtonLabel(systemName: "gearshape")
+        }
+        .accessibilityLabel(Text("Settings"))
     }
 
     private func iconButton(systemName: String, action: @escaping () -> Void) -> some View {
@@ -240,6 +329,104 @@ struct RootView: View {
                     .foregroundStyle(.white.opacity(0.6))
             }
             .padding(.bottom, 24)
+        }
+    }
+}
+
+private struct RootCalibrationView: View {
+    @Binding var redGain: Double
+    @Binding var greenGain: Double
+    @Binding var blueGain: Double
+    let currentRed: Double
+    let currentGreen: Double
+    let currentBlue: Double
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text("Point at something white or neutral gray, then tap Calibrate to baseline the colors.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                // Current reading swatch
+                VStack(spacing: 8) {
+                    Text("Current Reading")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.sRGB, red: currentRed, green: currentGreen, blue: currentBlue, opacity: 1))
+                        .frame(width: 80, height: 80)
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.2), lineWidth: 1))
+
+                    HStack(spacing: 12) {
+                        Text("R: \(Int(currentRed * 255))")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.red)
+                        Text("G: \(Int(currentGreen * 255))")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.green)
+                        Text("B: \(Int(currentBlue * 255))")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.blue)
+                    }
+                }
+
+                Divider()
+
+                // Current gains
+                VStack(spacing: 12) {
+                    Text("Calibration Gains")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 20) {
+                        gainLabel("R", value: redGain, color: .red)
+                        gainLabel("G", value: greenGain, color: .green)
+                        gainLabel("B", value: blueGain, color: .blue)
+                    }
+                }
+
+                Spacer()
+
+                Button("Calibrate to White") {
+                    // Calculate gains so current reading becomes ~0.9 (near white but not clipped)
+                    let target: Double = 0.9
+                    if currentRed > 0.01 { redGain = target / currentRed }
+                    if currentGreen > 0.01 { greenGain = target / currentGreen }
+                    if currentBlue > 0.01 { blueGain = target / currentBlue }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button("Reset to Default") {
+                    redGain = 1.0
+                    greenGain = 1.0
+                    blueGain = 1.0
+                }
+                .buttonStyle(.bordered)
+                .tint(.secondary)
+            }
+            .padding()
+            .navigationTitle("Color Calibration")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func gainLabel(_ label: String, value: Double, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(label)
+                .font(.caption.bold())
+                .foregroundStyle(color)
+            Text(String(format: "%.2f", value))
+                .font(.caption.monospaced())
         }
     }
 }

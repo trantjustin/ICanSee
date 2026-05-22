@@ -22,17 +22,17 @@ final class CameraService: NSObject, ObservableObject {
     @Published private(set) var sampledRed: Double = 0
     @Published private(set) var sampledGreen: Double = 0
     @Published private(set) var sampledBlue: Double = 0
-    @Published var isFrozen: Bool = false {
-        didSet {
-            let new = isFrozen
-            frozenFlag.withLock { $0 = new }
-            if isFrozen {
-                Analytics.signal(Analytics.Event.readingFrozen)
-            } else if oldValue {
-                Analytics.signal(Analytics.Event.readingResumed)
-            }
-        }
-    }
+    @Published private(set) var zoomFactor: CGFloat = 1
+
+    /// Calibration gains to correct for lighting/sensor differences.
+    /// Applied to raw sensor values before color matching. Defaults to 1.0 (no change).
+    @Published var redGain: Double = 1.0
+    @Published var greenGain: Double = 1.0
+    @Published var blueGain: Double = 1.0
+    /// Upper bound for pinch zoom, set once the device is configured.
+    /// Cap at 5× — beyond that the wide-angle's digital crop visibly
+    /// destroys the color we're trying to sample.
+    @Published private(set) var maxZoomFactor: CGFloat = 5
 
     let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.jtrant.i-can-see.session")
@@ -41,13 +41,35 @@ final class CameraService: NSObject, ObservableObject {
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     /// Accessed only on `sessionQueue`.
     private var configured = false
-    /// Read by the frame queue; written from main when `isFrozen` toggles.
-    private let frozenFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    /// Held on `sessionQueue` so zoom changes can `lockForConfiguration`
+    /// the same device that's already wired into the session.
+    private var device: AVCaptureDevice?
 
     /// Pixel side-length of the square sampled at the center of the frame.
     /// 24 px averages out sensor noise without smearing across edges in
     /// typical handheld framing.
     private let sampleSize: CGFloat = 24
+
+    /// Smoothing factor for color transitions (0...1). Higher = more smoothing.
+    private let smoothingAlpha: Double = 0.15
+    /// Smoothed RGB values for temporal stability.
+    private var smoothedR: Double = 0
+    private var smoothedG: Double = 0
+    private var smoothedB: Double = 0
+
+    /// Motion settling: only update color match after frames are stable.
+    /// Threshold for detecting significant motion (in 0-1 RGB space).
+    private let motionThreshold: Double = 0.05
+    /// Frames required to settle before updating match.
+    private let settlingFrames: Int = 8
+    /// Current settling counter (0 when motion detected, increments when stable).
+    private var settlingCounter: Int = 0
+    /// Previous smoothed values to detect motion.
+    private var prevSmoothedR: Double = 0
+    private var prevSmoothedG: Double = 0
+    private var prevSmoothedB: Double = 0
+    /// Stabilized color match (only updates when settled).
+    private var settledMatch: ColorMatcher.Match?
 
     func requestAccessAndStart() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -71,6 +93,25 @@ final class CameraService: NSObject, ObservableObject {
     func stop() {
         sessionQueue.async { [session] in
             if session.isRunning { session.stopRunning() }
+        }
+    }
+
+    /// Apply a pinch-gesture-driven zoom. Clamped to `[1, maxZoomFactor]`
+    /// on the session queue (the only thread that may lock the device
+    /// for configuration).
+    func setZoom(_ factor: CGFloat) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.device else { return }
+            let cap = min(CGFloat(5), device.activeFormat.videoMaxZoomFactor)
+            let clamped = min(max(factor, 1.0), cap)
+            do {
+                try device.lockForConfiguration()
+                device.videoZoomFactor = clamped
+                device.unlockForConfiguration()
+                self.publish { $0.zoomFactor = clamped }
+            } catch {
+                // Lock failure is non-fatal — the zoom just won't update.
+            }
         }
     }
 
@@ -119,6 +160,9 @@ final class CameraService: NSObject, ObservableObject {
             return false
         }
         session.addInput(input)
+        self.device = device
+        let cap = min(CGFloat(5), device.activeFormat.videoMaxZoomFactor)
+        publish { $0.maxZoomFactor = cap }
 
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -155,8 +199,6 @@ extension CameraService: AVCaptureVideoDataOutputSampleBufferDelegate {
                        from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-        if frozenFlag.withLock({ $0 }) { return }
-
         let w = CVPixelBufferGetWidth(pixelBuffer)
         let h = CVPixelBufferGetHeight(pixelBuffer)
         let side = Int(sampleSize)
@@ -185,18 +227,50 @@ extension CameraService: AVCaptureVideoDataOutputSampleBufferDelegate {
             gSum += Int(bytes[i * 4 + 1])
             bSum += Int(bytes[i * 4 + 2])
         }
-        let r = Double(rSum) / Double(pixelCount) / 255.0
-        let g = Double(gSum) / Double(pixelCount) / 255.0
-        let b = Double(bSum) / Double(pixelCount) / 255.0
+        let rawR = Double(rSum) / Double(pixelCount) / 255.0
+        let rawG = Double(gSum) / Double(pixelCount) / 255.0
+        let rawB = Double(bSum) / Double(pixelCount) / 255.0
 
-        let match = ColorMatcher.match(red: r, green: g, blue: b)
+        // Apply calibration gains
+        let calibratedR = min(1.0, max(0.0, rawR * redGain))
+        let calibratedG = min(1.0, max(0.0, rawG * greenGain))
+        let calibratedB = min(1.0, max(0.0, rawB * blueGain))
+
+        // Temporal smoothing to slow down rapid color changes
+        smoothedR = (smoothingAlpha * calibratedR) + ((1.0 - smoothingAlpha) * smoothedR)
+        smoothedG = (smoothingAlpha * calibratedG) + ((1.0 - smoothingAlpha) * smoothedG)
+        smoothedB = (smoothingAlpha * calibratedB) + ((1.0 - smoothingAlpha) * smoothedB)
+
+        // Detect motion by comparing to previous frame
+        let deltaR = abs(smoothedR - prevSmoothedR)
+        let deltaG = abs(smoothedG - prevSmoothedG)
+        let deltaB = abs(smoothedB - prevSmoothedB)
+        let maxDelta = max(deltaR, max(deltaG, deltaB))
+
+        if maxDelta > motionThreshold {
+            // Motion detected — reset settling counter
+            settlingCounter = 0
+        } else {
+            // Stable — increment counter up to settling threshold
+            settlingCounter = min(settlingCounter + 1, settlingFrames)
+        }
+
+        // Update settled match only when camera has been stable long enough
+        if settlingCounter >= settlingFrames {
+            settledMatch = ColorMatcher.match(red: smoothedR, green: smoothedG, blue: smoothedB)
+        }
+
+        // Store previous values for next frame
+        prevSmoothedR = smoothedR
+        prevSmoothedG = smoothedG
+        prevSmoothedB = smoothedB
 
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.isFrozen else { return }
-            self.sampledRed = r
-            self.sampledGreen = g
-            self.sampledBlue = b
-            self.currentMatch = match
+            guard let self else { return }
+            self.sampledRed = smoothedR
+            self.sampledGreen = smoothedG
+            self.sampledBlue = smoothedB
+            self.currentMatch = self.settledMatch
         }
     }
 }

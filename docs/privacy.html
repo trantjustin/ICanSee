@@ -54,10 +54,11 @@
     <ul>
         <li><code>App.launch</code> &mdash; the app opened.</li>
         <li><code>Camera.authorized</code> / <code>Camera.denied</code> &mdash; whether the camera permission was granted.</li>
-        <li><code>Reading.frozen</code> / <code>Reading.resumed</code> &mdash; you tapped to freeze or unfreeze the live reading.</li>
+        <li><code>Reading.corrected</code> &mdash; you changed the detected color label using the correction picker.</li>
+        <li><code>Reading.correctionCleared</code> &mdash; you reset a correction back to the detected label.</li>
     </ul>
     <p style="margin-bottom: 0;">
-        Never sent: pixel values, color names, hex codes, photo contents, image filenames, or anything else derived from what you point the camera at. TelemetryDeck does not receive your IP, IDFA, or any reversible device identifier &mdash; it sees only a salted, hashed token.
+        Never sent: pixel values, hex codes, photo contents, image filenames, or anything else derived from image content. For correction events, only the selected color labels (for example <code>from=Olive</code>, <code>to=Yellow</code>) are sent. TelemetryDeck does not receive your IP, IDFA, or any reversible device identifier &mdash; it sees only a salted, hashed token.
     </p>
 </div>
 

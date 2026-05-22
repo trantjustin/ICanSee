@@ -2,7 +2,7 @@ import Foundation
 import simd
 
 /// Maps an sRGB sample to the nearest entry in `NamedColor.palette` using
-/// hue-weighted Lab distance, a chroma penalty, and a primary-name bonus.
+/// CIEDE2000 distance, plus domain-specific penalties/bonuses.
 ///
 /// Plain Euclidean Lab distance (CIEDE76) has three failure modes that
 /// hurt the people this app is for:
@@ -19,7 +19,7 @@ import simd
 ///    The user's mental model is "yellow", not "olive".
 ///
 /// Fixes:
-/// - **Lightness weight 0.6** down-weights ΔL*, so hue dominates.
+/// - **CIEDE2000** better aligns with human perception than plain CIE76.
 /// - **Linear chroma penalty** keeps neutrals from sneaking in.
 /// - **Primary bonus** (`-primaryBonus` distance for entries flagged
 ///   `isPrimary` in the palette) tips ties toward everyday colour names
@@ -35,18 +35,23 @@ enum ColorMatcher {
         let name: String
         /// e.g. "Red + Yellow" — what primaries/neutrals mix to make this.
         let composition: String
+        /// Second-closest name when decision boundary is tight.
+        let alternateName: String?
         let confidence: Double  // 0...1, 1 = exact, 0 = on a boundary
     }
 
-    /// How much an L* difference contributes to the Euclidean sum, relative
-    /// to a/b. 1.0 = standard CIEDE76. Less than 1.0 = hue dominates.
-    private static let lightnessWeight: Double = 0.6
     /// Distance discount applied to palette entries flagged as everyday
-    /// colour names. 18 was chosen empirically: enough to overcome the
-    /// ~5-15 L* gap that auto-exposure tends to introduce, not so much
-    /// that genuinely-darker samples (a true Maroon, a real Olive) lose
-    /// to their primary cousins.
-    private static let primaryBonus: Double = 18
+    /// colour names. Tuned for CIEDE2000 scale: enough to favor common
+    /// names near boundaries, but not so large that true darker variants
+    /// (Maroon/Olive) lose to primary counterparts.
+    private static let primaryBonus: Double = 10
+    /// Olive is a darker, muted yellow-green. With lightness deliberately
+    /// down-weighted for the general matcher, bright yellows can sometimes
+    /// drift toward Olive on a/b proximity alone. Apply a targeted penalty
+    /// so high-L* yellow tones stay "Yellow".
+    private static let oliveBrightPenalty: Double = 12
+    private static let oliveBrightLThreshold: Double = 58
+    private static let yellowAxisThreshold: Double = 28
     private static let paletteVectors: [PaletteVector] = {
         NamedColor.palette.map { candidate in
             let lab = labFromSRGB(r: candidate.red, g: candidate.green, b: candidate.blue)
@@ -61,29 +66,34 @@ enum ColorMatcher {
         let sampleChroma = sqrt(sampleLab.y * sampleLab.y + sampleLab.z * sampleLab.z)
 
         var bestIndex = 0
+        var secondIndex = 0
         var bestDistance = Double.infinity
         var secondDistance = Double.infinity
 
         for (i, candidate) in paletteVectors.enumerated() {
-            let dL = (sampleLab.x - candidate.lab.x) * lightnessWeight
-            let da = sampleLab.y - candidate.lab.y
-            let db = sampleLab.z - candidate.lab.z
-            let labDistance = sqrt(dL * dL + da * da + db * db)
+            let perceptualDistance = deltaE2000(sampleLab, candidate.lab)
             let bonus = candidate.color.isPrimary ? primaryBonus : 0
-            let d = labDistance + chromaPenalty(sample: sampleChroma, candidate: candidate.chroma) - bonus
+            let d = perceptualDistance
+                + chromaPenalty(sample: sampleChroma, candidate: candidate.chroma)
+                + olivePenalty(sampleLab: sampleLab, candidateName: candidate.color.name)
+                - bonus
             if d < bestDistance {
+                secondIndex = bestIndex
                 secondDistance = bestDistance
                 bestDistance = d
                 bestIndex = i
             } else if d < secondDistance {
                 secondDistance = d
+                secondIndex = i
             }
         }
 
         let best = paletteVectors[bestIndex].color
+        let second = paletteVectors[secondIndex].color
         let margin = max(0, secondDistance - bestDistance)
-        let confidence = min(1.0, margin / 25.0)
-        return Match(name: best.name, composition: best.composition, confidence: confidence)
+        let confidence = min(1.0, margin / 8.0)
+        let alternateName = (secondIndex != bestIndex) ? second.name : nil
+        return Match(name: best.name, composition: best.composition, alternateName: alternateName, confidence: confidence)
     }
 
     /// Penalty added to a candidate when the sample has more chroma than
@@ -106,6 +116,97 @@ enum ColorMatcher {
         let gap = sample - candidate
         guard gap > 0 else { return 0 }
         return sample < neutralThreshold ? gap * 0.5 : gap * 2.0
+    }
+
+    private static func olivePenalty(sampleLab: SIMD3<Double>, candidateName: String) -> Double {
+        guard candidateName == "Olive" else { return 0 }
+        // b* is yellow-blue axis. High positive b* + high L* is a bright
+        // yellow-ish sample, not olive.
+        if sampleLab.x >= oliveBrightLThreshold && sampleLab.z >= yellowAxisThreshold {
+            return oliveBrightPenalty
+        }
+        return 0
+    }
+
+    // MARK: - Lab distance
+
+    /// CIEDE2000 color-difference formula.
+    private static func deltaE2000(_ l1: SIMD3<Double>, _ l2: SIMD3<Double>) -> Double {
+        let (L1, a1, b1) = (l1.x, l1.y, l1.z)
+        let (L2, a2, b2) = (l2.x, l2.y, l2.z)
+
+        let c1 = hypot(a1, b1)
+        let c2 = hypot(a2, b2)
+        let cBar = (c1 + c2) / 2
+        let cBar7 = pow(cBar, 7)
+        let g = 0.5 * (1 - sqrt(cBar7 / (cBar7 + pow(25.0, 7))))
+
+        let a1Prime = (1 + g) * a1
+        let a2Prime = (1 + g) * a2
+        let c1Prime = hypot(a1Prime, b1)
+        let c2Prime = hypot(a2Prime, b2)
+
+        let h1Prime = hueAngleDegrees(b: b1, aPrime: a1Prime)
+        let h2Prime = hueAngleDegrees(b: b2, aPrime: a2Prime)
+
+        let deltaLPrime = L2 - L1
+        let deltaCPrime = c2Prime - c1Prime
+        let deltaHPrimeAngle = hueDelta(c1Prime: c1Prime, c2Prime: c2Prime, h1Prime: h1Prime, h2Prime: h2Prime)
+        let deltaHPrime = 2 * sqrt(c1Prime * c2Prime) * sin(deg2rad(deltaHPrimeAngle / 2))
+
+        let lBarPrime = (L1 + L2) / 2
+        let cBarPrime = (c1Prime + c2Prime) / 2
+        let hBarPrime = hueAverage(c1Prime: c1Prime, c2Prime: c2Prime, h1Prime: h1Prime, h2Prime: h2Prime)
+
+        let t = 1
+            - 0.17 * cos(deg2rad(hBarPrime - 30))
+            + 0.24 * cos(deg2rad(2 * hBarPrime))
+            + 0.32 * cos(deg2rad(3 * hBarPrime + 6))
+            - 0.20 * cos(deg2rad(4 * hBarPrime - 63))
+
+        let deltaTheta = 30 * exp(-pow((hBarPrime - 275) / 25, 2))
+        let cBarPrime7 = pow(cBarPrime, 7)
+        let rC = 2 * sqrt(cBarPrime7 / (cBarPrime7 + pow(25.0, 7)))
+
+        let sL = 1 + (0.015 * pow(lBarPrime - 50, 2)) / sqrt(20 + pow(lBarPrime - 50, 2))
+        let sC = 1 + 0.045 * cBarPrime
+        let sH = 1 + 0.015 * cBarPrime * t
+        let rT = -sin(deg2rad(2 * deltaTheta)) * rC
+
+        let dL = deltaLPrime / sL
+        let dC = deltaCPrime / sC
+        let dH = deltaHPrime / sH
+        return sqrt(dL * dL + dC * dC + dH * dH + rT * dC * dH)
+    }
+
+    private static func hueAngleDegrees(b: Double, aPrime: Double) -> Double {
+        var angle = rad2deg(atan2(b, aPrime))
+        if angle < 0 { angle += 360 }
+        return angle
+    }
+
+    private static func hueDelta(c1Prime: Double, c2Prime: Double, h1Prime: Double, h2Prime: Double) -> Double {
+        guard c1Prime * c2Prime != 0 else { return 0 }
+        let diff = h2Prime - h1Prime
+        if abs(diff) <= 180 { return diff }
+        return diff > 180 ? diff - 360 : diff + 360
+    }
+
+    private static func hueAverage(c1Prime: Double, c2Prime: Double, h1Prime: Double, h2Prime: Double) -> Double {
+        guard c1Prime * c2Prime != 0 else { return h1Prime + h2Prime }
+        if abs(h1Prime - h2Prime) <= 180 {
+            return (h1Prime + h2Prime) / 2
+        }
+        let sum = h1Prime + h2Prime
+        return sum < 360 ? (sum + 360) / 2 : (sum - 360) / 2
+    }
+
+    private static func deg2rad(_ degrees: Double) -> Double {
+        degrees * .pi / 180
+    }
+
+    private static func rad2deg(_ radians: Double) -> Double {
+        radians * 180 / .pi
     }
 
     // MARK: - sRGB → Lab

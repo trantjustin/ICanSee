@@ -71,7 +71,7 @@
 
 <details class="faq">
     <summary>What analytics do you collect?</summary>
-    <p>Only four anonymous signals: <code>App.launch</code>, <code>Camera.authorized</code>/<code>Camera.denied</code>, and <code>Reading.frozen</code>/<code>Reading.resumed</code>. Never the color, hex code, photo, or any image data. See the <a href="privacy.html">privacy page</a> for details.</p>
+    <p>Anonymous usage signals only: <code>App.launch</code>, <code>Camera.authorized</code>/<code>Camera.denied</code>, plus correction actions (<code>Reading.corrected</code> and <code>Reading.correctionCleared</code>). For correction actions, the event includes only color labels (for example <code>from=Olive</code>, <code>to=Yellow</code>) so we can improve matcher accuracy. Never pixel values, hex codes, photos, or other image data. See the <a href="privacy.html">privacy page</a> for details.</p>
 </details>
 
 <h2>System requirements</h2>

@@ -45,8 +45,9 @@ checked into `ICanSee/Assets.xcassets/AppIcon.appiconset/`.
 ## Privacy
 
 See [docs/privacy.html](docs/privacy.html). Short version: nothing leaves
-your phone except four anonymous TelemetryDeck signals (`App.launch`,
-`Camera.authorized`/`Camera.denied`, `Reading.frozen`/`Reading.resumed`).
+your phone except anonymous TelemetryDeck usage signals (`App.launch`,
+`Camera.authorized`/`Camera.denied`, and correction events such as
+`Reading.corrected`/`Reading.correctionCleared`).
 
 ## License
 

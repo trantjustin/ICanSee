@@ -39,7 +39,7 @@ enum Analytics {
         static let appLaunch = "App.launch"
         static let cameraAuthorized = "Camera.authorized"
         static let cameraDenied = "Camera.denied"
-        static let readingFrozen = "Reading.frozen"
-        static let readingResumed = "Reading.resumed"
+        static let readingCorrected = "Reading.corrected"
+        static let readingCorrectionCleared = "Reading.correctionCleared"
     }
 }

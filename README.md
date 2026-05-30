@@ -15,8 +15,9 @@ people with color vision deficiency.
   and drag a dropper to identify a specific pixel.
 - **31-name palette** curated for clarity over precision, matched in CIE
   Lab space so dark navy reads as *Navy* (not *Black*).
+- **Color correction** — if a reading seems wrong, tap to manually pick the correct color. Corrections are tracked anonymously via TelemetryDeck to improve matching.
 - **Local-only** — camera frames are processed on-device, no uploads,
-  no account, no tracking of what you point at.
+  no account.
 
 ## Build
 

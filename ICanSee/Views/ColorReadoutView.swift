@@ -5,9 +5,11 @@ import SwiftUI
 struct ColorReadoutView: View {
     let match: ColorMatcher.Match?
     let sampledColor: Color
+    var mode: Analytics.ReadingMode = .live
+    var isFrozen: Bool = false
+    var onToggleFreeze: (() -> Void)?
     @State private var correctedColor: NamedColor?
     @State private var showCorrectionPicker = false
-    @State private var showCalibrationSheet = false
     @AppStorage("isDiagnosticModeEnabled") private var isDiagnosticModeEnabled = false
     @AppStorage("redGain") private var redGain: Double = 1.0
     @AppStorage("greenGain") private var greenGain: Double = 1.0
@@ -51,59 +53,49 @@ struct ColorReadoutView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.12), lineWidth: 1)
         }
-        .overlay(alignment: .topTrailing) {
-            if isDiagnosticModeEnabled {
-                Text("DIAG")
-                    .font(.system(size: 8, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.white.opacity(0.1), in: Capsule())
-                    .padding(.top, 6)
-                    .padding(.trailing, 10)
-            }
-        }
         .overlay(alignment: .trailing) {
-            if isDiagnosticModeEnabled {
-                HStack(spacing: 8) {
-                    Button {
-                        showCalibrationSheet = true
-                    } label: {
-                        ZStack {
-                            Image(systemName: "eyedropper.halffull")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .frame(width: 32, height: 32)
-                                .background(.white.opacity(0.08), in: Circle())
-
-                            // Calibration active indicator
-                            if isCalibrated {
-                                Circle()
-                                    .fill(.orange)
-                                    .frame(width: 6, height: 6)
-                                    .offset(x: 10, y: -10)
-                            }
-                        }
-                    }
-                    .accessibilityLabel(Text("Calibrate colors"))
-
-                    if match != nil {
-                        Button {
-                            showCorrectionPicker = true
-                        } label: {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .frame(width: 32, height: 32)
-                                .background(.white.opacity(0.08), in: Circle())
-                        }
-                        .accessibilityLabel(Text("Correct color"))
-                    }
+            HStack(spacing: 8) {
+                if isDiagnosticModeEnabled {
+                    Text("DIAG")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.orange.opacity(0.15), in: Capsule())
+                        .overlay(Capsule().strokeBorder(.orange.opacity(0.4), lineWidth: 1))
                 }
-                .padding(.trailing, 10)
+
+                if let onToggleFreeze {
+                    Button {
+                        onToggleFreeze()
+                    } label: {
+                        Image(systemName: isFrozen ? "play.fill" : "pause.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .frame(width: 32, height: 32)
+                            .background(isFrozen ? .blue.opacity(0.25) : .white.opacity(0.08), in: Circle())
+                    }
+                    .accessibilityLabel(Text(isFrozen ? "Resume" : "Freeze"))
+                }
+
+                if match != nil {
+                    Button {
+                        showCorrectionPicker = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .frame(width: 32, height: 32)
+                            .background(.white.opacity(0.08), in: Circle())
+                    }
+                    .accessibilityLabel(Text("Correct color"))
+                }
             }
+            .padding(.trailing, 10)
         }
         .padding(.horizontal, 16)
+        .contentShape(Rectangle())
+        .onTapGesture { }
         .onChange(of: matchIdentity) { _, _ in
             correctedColor = nil
         }
@@ -114,7 +106,7 @@ struct ColorReadoutView: View {
                     if let fromName = currentDisplayedName, fromName != selected.name {
                         Analytics.signal(
                             Analytics.Event.readingCorrected,
-                            parameters: ["from": fromName, "to": selected.name]
+                            parameters: correctionParameters(from: fromName, to: selected.name)
                         )
                     }
                     correctedColor = selected
@@ -123,23 +115,32 @@ struct ColorReadoutView: View {
                     if let fromColor = correctedColor, let detected = match?.name {
                         Analytics.signal(
                             Analytics.Event.readingCorrectionCleared,
-                            parameters: ["from": fromColor.name, "to": detected]
+                            parameters: correctionParameters(from: fromColor.name, to: detected)
                         )
                     }
                     correctedColor = nil
                 }
             )
         }
-        .sheet(isPresented: $showCalibrationSheet) {
-            ColorCalibrationView(
-                redGain: $redGain,
-                greenGain: $greenGain,
-                blueGain: $blueGain,
-                currentRed: colorComponents.r,
-                currentGreen: colorComponents.g,
-                currentBlue: colorComponents.b
-            )
-        }
+    }
+
+    /// Builds the privacy-safe parameter dict for correction signals.
+    /// Includes `mode`, `calibrated`, and a coarse `hueBucket` of the
+    /// sampled color so the TelemetryDeck dashboard can slice corrections
+    /// by surface, calibration state, and hue family.
+    private func correctionParameters(from fromName: String, to toName: String) -> [String: String] {
+        let comps = colorComponents
+        return [
+            "from": fromName,
+            "to": toName,
+            "mode": mode.rawValue,
+            "calibrated": isCalibrated ? "true" : "false",
+            "hueBucket": Analytics.hueBucket(red: comps.r, green: comps.g, blue: comps.b)
+        ]
+    }
+
+    private var isCalibrated: Bool {
+        abs(redGain - 1.0) > 0.01 || abs(greenGain - 1.0) > 0.01 || abs(blueGain - 1.0) > 0.01
     }
 
     private var primaryLabel: String {
@@ -172,10 +173,6 @@ struct ColorReadoutView: View {
 
     private func isAmbiguous(_ match: ColorMatcher.Match) -> Bool {
         match.confidence < 0.5
-    }
-
-    private var isCalibrated: Bool {
-        abs(redGain - 1.0) > 0.01 || abs(greenGain - 1.0) > 0.01 || abs(blueGain - 1.0) > 0.01
     }
 
     private var colorComponents: (r: Double, g: Double, b: Double) {
@@ -365,5 +362,88 @@ private struct ColorCalibrationView: View {
             Text(String(format: "%.2f", value))
                 .font(.caption.monospaced())
         }
+    }
+}
+
+// MARK: - Complementary Colors
+
+/// Expandable strip below the color readout showing complementary color
+/// suggestions. Tapping the chevron toggles between collapsed (just a hint
+/// label) and expanded (swatches with names).
+struct ComplementaryColorsView: View {
+    let suggestions: [ColorHarmony.Suggestion]
+    @State private var isExpanded = false
+
+    var body: some View {
+        if !suggestions.isEmpty {
+            VStack(spacing: 0) {
+                // Toggle button
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                    if isExpanded {
+                        Analytics.signal(Analytics.Event.complementaryExpanded)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "paintpalette")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Goes well with")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+
+                // Expanded content
+                if isExpanded {
+                    HStack(spacing: 12) {
+                        ForEach(suggestions) { suggestion in
+                            suggestionCard(suggestion)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .environment(\.colorScheme, .dark)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            }
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+            .onTapGesture { }
+        }
+    }
+
+    private func suggestionCard(_ suggestion: ColorHarmony.Suggestion) -> some View {
+        VStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(suggestion.namedColor.color)
+                .frame(height: 44)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(.white.opacity(0.3), lineWidth: 1)
+                }
+
+            Text(suggestion.namedColor.name)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
     }
 }

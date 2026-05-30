@@ -29,13 +29,16 @@
         }
       }
     },
+    "B %@" : {
+
+    },
     "B: %@" : {
 
     },
-    "Calibrate colors" : {
+    "Calibrate for Accuracy" : {
 
     },
-    "Calibrate for Accuracy" : {
+    "Calibrate to White" : {
 
     },
     "Calibration Gains" : {
@@ -69,6 +72,9 @@
           }
         }
       }
+    },
+    "Camera unavailable" : {
+
     },
     "Choose from Files" : {
       "extractionState" : "stale",
@@ -165,6 +171,9 @@
     "Current Photo Reading" : {
 
     },
+    "Current reading" : {
+
+    },
     "Current Reading" : {
 
     },
@@ -172,7 +181,6 @@
 
     },
     "FROZEN" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -199,6 +207,9 @@
           }
         }
       }
+    },
+    "G %@" : {
+
     },
     "G: %@" : {
 
@@ -231,6 +242,9 @@
           }
         }
       }
+    },
+    "Goes well with" : {
+
     },
     "Help" : {
       "localizations" : {
@@ -495,7 +509,13 @@
         }
       }
     },
+    "Point your camera at something pure white — a sheet of paper, a wall, or a white object — and keep the crosshair centered on it." : {
+
+    },
     "Point your camera at something pure white — a sheet of paper, a wall, or a white object. This helps the app understand what \"white\" looks like in your current lighting." : {
+
+    },
+    "R %@" : {
 
     },
     "R: %@" : {
@@ -511,10 +531,16 @@
         }
       }
     },
+    "Reset to Default" : {
+
+    },
     "Reset zoom" : {
 
     },
     "Settings" : {
+
+    },
+    "Shows the DIAG indicator, RGB values, and the color-correction picker on the readout." : {
 
     },
     "This device doesn't have a usable camera, but you can still load a photo to inspect." : {
@@ -547,6 +573,9 @@
       }
     },
     "What's New" : {
+
+    },
+    "Your camera is now calibrated to your current lighting. You can recalibrate anytime from Settings." : {
 
     }
   },

@@ -34,6 +34,7 @@ struct PhotoInspectorView: View {
     @State private var zoom: CGFloat = 1
     @State private var pinchBase: CGFloat = 1
     @State private var showCalibrationSheet = false
+    @State private var showSettingsSheet = false
 
     private let minZoom: CGFloat = 1
     private let maxZoom: CGFloat = 8
@@ -152,15 +153,11 @@ struct PhotoInspectorView: View {
                     .accessibilityLabel(Text("Reset zoom"))
                 }
 
-                // Settings menu for photo inspector
-                Menu {
-                    Button {
-                        showCalibrationSheet = true
-                    } label: {
-                        Label("Calibrate Colors", systemImage: "eyedropper.halffull")
-                    }
-
-                    Toggle("Diagnostic Mode", isOn: $isDiagnosticModeEnabled)
+                // Settings button. Uses a sheet rather than a `Menu` to
+                // avoid the SwiftUI bug where a Menu child Button's state
+                // mutation is dropped before the downstream sheet binds.
+                Button {
+                    showSettingsSheet = true
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 16, weight: .semibold))
@@ -177,7 +174,7 @@ struct PhotoInspectorView: View {
 
             VStack {
                 Spacer()
-                ColorReadoutView(match: match, sampledColor: sampledColor)
+                ColorReadoutView(match: match, sampledColor: sampledColor, mode: .photo)
                     .padding(.bottom, safeBottom + 8)
             }
         }
@@ -190,6 +187,17 @@ struct PhotoInspectorView: View {
                 currentRed: smoothedR,
                 currentGreen: smoothedG,
                 currentBlue: smoothedB
+            )
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            PhotoSettingsSheet(
+                isDiagnosticModeEnabled: $isDiagnosticModeEnabled,
+                onCalibrate: {
+                    showSettingsSheet = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showCalibrationSheet = true
+                    }
+                }
             )
         }
     }
@@ -248,38 +256,12 @@ struct PhotoInspectorView: View {
             smoothedB = (smoothingAlpha * avg.b) + ((1.0 - smoothingAlpha) * smoothedB)
         }
 
-        // Update display color immediately (for loupe feedback)
+        // Update display color and match immediately. Unlike live camera
+        // (which samples every frame and benefits from settling), the photo
+        // inspector only samples on user interaction, so each sample reflects
+        // the user's intent and should update the readout directly.
         sampledColor = Color(.sRGB, red: smoothedR, green: smoothedG, blue: smoothedB, opacity: 1)
-
-        if force {
-            // Immediate match on initial placement
-            match = ColorMatcher.match(red: smoothedR, green: smoothedG, blue: smoothedB)
-            settlingCounter = settlingFrames // Pre-settle
-        } else {
-            // Detect motion by comparing to previous frame
-            let deltaR = abs(smoothedR - prevSmoothedR)
-            let deltaG = abs(smoothedG - prevSmoothedG)
-            let deltaB = abs(smoothedB - prevSmoothedB)
-            let maxDelta = max(deltaR, max(deltaG, deltaB))
-
-            if maxDelta > motionThreshold {
-                // Motion detected — reset settling counter
-                settlingCounter = 0
-            } else {
-                // Stable — increment counter up to settling threshold
-                settlingCounter = min(settlingCounter + 1, settlingFrames)
-            }
-
-            // Update match only when settled
-            if settlingCounter >= settlingFrames {
-                match = ColorMatcher.match(red: smoothedR, green: smoothedG, blue: smoothedB)
-            }
-        }
-
-        // Store previous values
-        prevSmoothedR = smoothedR
-        prevSmoothedG = smoothedG
-        prevSmoothedB = smoothedB
+        match = ColorMatcher.match(red: smoothedR, green: smoothedG, blue: smoothedB)
     }
 
     // MARK: - Coordinate transforms
@@ -402,68 +384,76 @@ private struct PhotoCalibrationView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Text("Photo calibration uses the same gains as live camera. Changes apply to both.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
-                VStack(spacing: 8) {
-                    Text("Current Photo Reading")
-                        .font(.caption)
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text("Photo calibration uses the same gains as live camera. Changes apply to both.")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(.sRGB, red: currentRed, green: currentGreen, blue: currentBlue, opacity: 1))
-                        .frame(width: 80, height: 80)
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.2), lineWidth: 1))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
 
-                    HStack(spacing: 12) {
-                        Text("R: \(Int(currentRed * 255))")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.red)
-                        Text("G: \(Int(currentGreen * 255))")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.green)
-                        Text("B: \(Int(currentBlue * 255))")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.blue)
+                    VStack(spacing: 10) {
+                        Text("Current Photo Reading")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(.sRGB, red: currentRed, green: currentGreen, blue: currentBlue, opacity: 1))
+                            .frame(width: 140, height: 140)
+                            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.2), lineWidth: 1))
+
+                        HStack(spacing: 12) {
+                            Text("R: \(Int(currentRed * 255))")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.red)
+                            Text("G: \(Int(currentGreen * 255))")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.green)
+                            Text("B: \(Int(currentBlue * 255))")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.blue)
+                        }
                     }
-                }
 
-                Divider()
+                    Divider()
 
-                VStack(spacing: 12) {
-                    Text("Calibration Gains")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(spacing: 12) {
+                        Text("Calibration Gains")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
-                    HStack(spacing: 20) {
-                        gainLabel("R", value: redGain, color: .red)
-                        gainLabel("G", value: greenGain, color: .green)
-                        gainLabel("B", value: blueGain, color: .blue)
+                        HStack(spacing: 24) {
+                            gainLabel("R", value: redGain, color: .red)
+                            gainLabel("G", value: greenGain, color: .green)
+                            gainLabel("B", value: blueGain, color: .blue)
+                        }
                     }
-                }
 
-                Spacer()
-
-                Button("Reset to Default") {
-                    redGain = 1.0
-                    greenGain = 1.0
-                    blueGain = 1.0
+                    Button {
+                        redGain = 1.0
+                        greenGain = 1.0
+                        blueGain = 1.0
+                    } label: {
+                        Text("Reset to Default")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.secondary)
+                    .controlSize(.large)
+                    .padding(.top, 8)
                 }
-                .buttonStyle(BorderedProminentButtonStyle())
-                .controlSize(.large)
+                .padding()
             }
-            .padding()
             .navigationTitle("Color Calibration")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 
     private func gainLabel(_ label: String, value: Double, color: Color) -> some View {
@@ -474,6 +464,45 @@ private struct PhotoCalibrationView: View {
             Text(String(format: "%.2f", value))
                 .font(.caption.monospaced())
         }
+    }
+}
+
+/// Lightweight settings sheet for the photo inspector. Replaces the
+/// previous `Menu`-based settings to avoid the SwiftUI bug where a
+/// Menu's child Button dismisses before its state mutation propagates.
+private struct PhotoSettingsSheet: View {
+    @Binding var isDiagnosticModeEnabled: Bool
+    let onCalibrate: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Button {
+                        onCalibrate()
+                    } label: {
+                        Label("Calibrate Colors", systemImage: "eyedropper.halffull")
+                    }
+                }
+
+                Section {
+                    Toggle(isOn: $isDiagnosticModeEnabled) {
+                        Label("Diagnostic Mode", systemImage: "ladybug")
+                    }
+                } footer: {
+                    Text("Shows the DIAG indicator, RGB values, and the color-correction picker on the readout.")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

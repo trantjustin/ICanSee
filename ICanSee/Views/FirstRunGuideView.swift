@@ -2,14 +2,17 @@ import SwiftUI
 
 struct FirstRunGuideView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("isDiagnosticModeEnabled") private var isDiagnosticModeEnabled = false
     @AppStorage("hasCalibrated") private var hasCalibrated = false
     @AppStorage("hasSeenCalibrationPrompt") private var hasSeenCalibrationPrompt = false
     @AppStorage("redGain") private var redGain: Double = 1.0
     @AppStorage("greenGain") private var greenGain: Double = 1.0
     @AppStorage("blueGain") private var blueGain: Double = 1.0
-    @State private var diagnosticTapCount = 0
     @State private var showCalibration = false
+
+    /// Optional so #Preview without a session still compiles. In-app this is
+    /// always supplied by RootView so the calibration sheet can show a live
+    /// viewfinder and use the real sampled RGB for white-balance.
+    var camera: CameraService? = nil
 
     var body: some View {
         VStack(spacing: 24) {
@@ -30,13 +33,6 @@ struct FirstRunGuideView: View {
 
             Text("I Can See!")
                 .font(.system(.largeTitle, design: .rounded, weight: .heavy))
-                .onTapGesture {
-                    diagnosticTapCount += 1
-                    if diagnosticTapCount >= 3 {
-                        diagnosticTapCount = 0
-                        isDiagnosticModeEnabled.toggle()
-                    }
-                }
 
             Text("Point your camera at anything. The crosshair in the middle tells you what color it is — useful when red and green, or blue and purple, look the same to you.")
                 .multilineTextAlignment(.center)
@@ -45,14 +41,11 @@ struct FirstRunGuideView: View {
 
             VStack(alignment: .leading, spacing: 16) {
                 tip(icon: "scope", title: "Aim the crosshair", body: "The center reticle is what gets sampled.")
-                tip(icon: "hand.tap", title: "Tap to freeze", body: "Hold a reading in place so you can read it.")
+                tip(icon: "hand.tap", title: "Tap to freeze", body: "Tap anywhere on the camera view to lock in the current image. Tap again to resume.")
                 tip(icon: "sun.max", title: "Use even light", body: "Harsh shadows or screens shift the answer — step into daylight when you can.")
             }
             .padding(.horizontal, 32)
             .padding(.top, 8)
-
-            Toggle("Diagnostic mode", isOn: $isDiagnosticModeEnabled)
-                .padding(.horizontal, 32)
 
             Spacer()
 
@@ -81,12 +74,19 @@ struct FirstRunGuideView: View {
         }
         .padding(.top, 48)
         .fullScreenCover(isPresented: $showCalibration) {
-            FirstRunCalibrationView(
-                redGain: $redGain,
-                greenGain: $greenGain,
-                blueGain: $blueGain,
-                hasCalibrated: $hasCalibrated
-            )
+            if let camera {
+                FirstRunCalibrationView(
+                    redGain: $redGain,
+                    greenGain: $greenGain,
+                    blueGain: $blueGain,
+                    hasCalibrated: $hasCalibrated,
+                    camera: camera
+                )
+            } else {
+                // #Preview path only: no live session available.
+                Text("Camera unavailable")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -115,29 +115,56 @@ struct FirstRunCalibrationView: View {
     @Binding var greenGain: Double
     @Binding var blueGain: Double
     @Binding var hasCalibrated: Bool
+    @ObservedObject var camera: CameraService
     @Environment(\.dismiss) private var dismiss
+    @State private var showDoneAlert = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
-
-                Image(systemName: "eyedropper.halffull")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.tint)
-
-                Text("Calibrate for Accuracy")
-                    .font(.title2.bold())
-
-                Text("Point your camera at something pure white — a sheet of paper, a wall, or a white object. This helps the app understand what \"white\" looks like in your current lighting.")
+            VStack(spacing: 20) {
+                Text("Point your camera at something pure white — a sheet of paper, a wall, or a white object — and keep the crosshair centered on it.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
 
-                Spacer()
+                // Live viewfinder
+                viewfinder
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+
+                // Current reading swatch
+                VStack(spacing: 8) {
+                    Text("Current reading")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(.sRGB,
+                                    red: currentRed,
+                                    green: currentGreen,
+                                    blue: currentBlue,
+                                    opacity: 1))
+                        .frame(width: 120, height: 120)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+                        )
+                    HStack(spacing: 10) {
+                        Text("R \(Int(currentRed * 255))").foregroundStyle(.red)
+                        Text("G \(Int(currentGreen * 255))").foregroundStyle(.green)
+                        Text("B \(Int(currentBlue * 255))").foregroundStyle(.blue)
+                    }
+                    .font(.caption.monospaced())
+                }
 
                 // Current gains display
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     Text("Current calibration")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -148,24 +175,25 @@ struct FirstRunCalibrationView: View {
                     }
                 }
 
+                Spacer(minLength: 0)
+
                 VStack(spacing: 12) {
                     Button("Calibrate to White") {
-                        // Will be set from camera readings - placeholder for now
-                        hasCalibrated = true
-                        dismiss()
+                        calibrate()
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
                     Button("Skip for now") {
+                        Analytics.signal(Analytics.Event.calibrationSkipped, parameters: ["source": "firstRun"])
                         dismiss()
                     }
                     .buttonStyle(.bordered)
                     .tint(.secondary)
                 }
-                .padding(.bottom, 32)
+                .padding(.bottom, 24)
             }
-            .padding()
+            .padding(.top, 4)
             .navigationTitle("Color Calibration")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -173,7 +201,60 @@ struct FirstRunCalibrationView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .alert("Calibration Complete", isPresented: $showDoneAlert) {
+                Button("Done") { dismiss() }
+            } message: {
+                Text("Your camera is now calibrated to your current lighting. You can recalibrate anytime from Settings.")
+            }
         }
+    }
+
+    @ViewBuilder
+    private var viewfinder: some View {
+        ZStack {
+            #if targetEnvironment(simulator)
+            Color(.sRGB,
+                  red: Double(camera.sampledRed),
+                  green: Double(camera.sampledGreen),
+                  blue: Double(camera.sampledBlue),
+                  opacity: 1)
+                .overlay(alignment: .top) {
+                    Text("SIMULATOR")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.4), in: Capsule())
+                        .padding(.top, 8)
+                }
+            #else
+            CameraPreviewView(session: camera.session)
+            #endif
+            Reticle()
+                .frame(width: 64, height: 64)
+                .allowsHitTesting(false)
+                .shadow(color: .black.opacity(0.5), radius: 6)
+        }
+    }
+
+    private var currentRed: Double { Double(camera.sampledRed) }
+    private var currentGreen: Double { Double(camera.sampledGreen) }
+    private var currentBlue: Double { Double(camera.sampledBlue) }
+
+    private func calibrate() {
+        // The sampledR/G/B values already have the *previous* gains baked in,
+        // so divide back out to recover the raw sensor reading before solving
+        // for the new gain that maps it to the near-white target.
+        let target: Double = 0.9
+        let rawR = currentRed / max(redGain, 0.0001)
+        let rawG = currentGreen / max(greenGain, 0.0001)
+        let rawB = currentBlue / max(blueGain, 0.0001)
+        if rawR > 0.01 { redGain = target / rawR }
+        if rawG > 0.01 { greenGain = target / rawG }
+        if rawB > 0.01 { blueGain = target / rawB }
+        hasCalibrated = true
+        Analytics.signal(Analytics.Event.calibrationCompleted, parameters: ["source": "firstRun"])
+        showDoneAlert = true
     }
 
     private func gainText(_ label: String, _ value: Double, _ color: Color) -> some View {

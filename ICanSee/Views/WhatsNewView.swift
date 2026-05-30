@@ -6,6 +6,11 @@ struct WhatsNewView: View {
     @AppStorage("hasCalibrated") private var hasCalibrated = false
     @State private var showCalibration = false
 
+    /// Optional so #Preview without a session still compiles. In-app this is
+    /// always supplied by RootView so the calibration sheet can share the
+    /// live camera session.
+    var camera: CameraService? = nil
+
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -103,6 +108,7 @@ private struct SimpleCalibrationView: View {
     @AppStorage("greenGain") private var greenGain: Double = 1.0
     @AppStorage("blueGain") private var blueGain: Double = 1.0
     @Environment(\.dismiss) private var dismiss
+    @State private var showDoneAlert = false
 
     var body: some View {
         NavigationStack {
@@ -126,7 +132,7 @@ private struct SimpleCalibrationView: View {
                 VStack(spacing: 12) {
                     Button("Calibrate to White") {
                         hasCalibrated = true
-                        dismiss()
+                        showDoneAlert = true
                     }
                     .buttonStyle(BorderedProminentButtonStyle())
                     .controlSize(.large)
@@ -146,6 +152,11 @@ private struct SimpleCalibrationView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+            }
+            .alert("Calibration Complete", isPresented: $showDoneAlert) {
+                Button("Done") { dismiss() }
+            } message: {
+                Text("Your camera is now calibrated to your current lighting. You can recalibrate anytime from Settings.")
             }
         }
     }

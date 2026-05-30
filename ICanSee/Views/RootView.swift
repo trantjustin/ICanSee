@@ -15,6 +15,7 @@ struct RootView: View {
     @State private var showGuide = false
     @State private var showWhatsNew = false
     @State private var showCalibrationSheet = false
+    @State private var showSettingsSheet = false
 
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showFileImporter = false
@@ -82,7 +83,7 @@ struct RootView: View {
             hasSeenFirstRunGuide = true
             hasSeenCalibrationPrompt = true
         }) {
-            FirstRunGuideView()
+            FirstRunGuideView(camera: camera)
         }
         .fullScreenCover(item: $inspectorImage) { wrapper in
             PhotoInspectorView(image: wrapper.image)
@@ -97,8 +98,21 @@ struct RootView: View {
                 currentBlue: Double(camera.sampledBlue)
             )
         }
+        .sheet(isPresented: $showSettingsSheet) {
+            SettingsSheet(
+                isDiagnosticModeEnabled: $isDiagnosticModeEnabled,
+                onCalibrate: {
+                    showSettingsSheet = false
+                    // Defer presentation until the settings sheet has fully
+                    // dismissed; otherwise iOS swallows the second sheet.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showCalibrationSheet = true
+                    }
+                }
+            )
+        }
         .fullScreenCover(isPresented: $showWhatsNew) {
-            WhatsNewView()
+            WhatsNewView(camera: camera)
         }
         .photosPicker(isPresented: $showPhotosPicker, selection: $photoPickerItem, matching: .images)
         .onChange(of: photoPickerItem) { _, newItem in
@@ -145,6 +159,17 @@ struct RootView: View {
     // MARK: - Live camera
     private var liveView: some View {
         ZStack {
+            #if targetEnvironment(simulator)
+            // The simulator has no camera; render the synthetic feed so
+            // the reticle appears to be aimed at the color the readout is
+            // currently reporting. Real device path uses CameraPreviewView.
+            Color(.sRGB,
+                  red: camera.sampledRed,
+                  green: camera.sampledGreen,
+                  blue: camera.sampledBlue,
+                  opacity: 1)
+                .ignoresSafeArea()
+            #else
             CameraPreviewView(session: camera.session)
                 .ignoresSafeArea()
                 .gesture(
@@ -156,6 +181,23 @@ struct RootView: View {
                             liveZoomBase = camera.zoomFactor
                         }
                 )
+            #endif
+
+            // Frozen snapshot overlays the live preview so the screen
+            // becomes a static image until the user taps to resume.
+            if camera.isFrozen, let snapshot = camera.frozenSnapshot {
+                Color.clear
+                    .ignoresSafeArea()
+                    .overlay {
+                        Image(uiImage: snapshot)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .clipped()
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
 
             // Reticle shrinks with zoom so the target stays a target rather
             // than swallowing the thing you're trying to identify. Matches
@@ -176,11 +218,54 @@ struct RootView: View {
                                         red: camera.sampledRed,
                                         green: camera.sampledGreen,
                                         blue: camera.sampledBlue,
-                                        opacity: 1)
+                                        opacity: 1),
+                    isFrozen: camera.isFrozen,
+                    onToggleFreeze: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            camera.toggleFreeze()
+                        }
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
                 )
-                .padding(.bottom, 28)
+                ComplementaryColorsView(suggestions: complementarySuggestions)
+                    .padding(.top, 6)
+                    .padding(.bottom, 28)
             }
+
+            // Status badge (FROZEN / SIMULATOR) — consistent position
+            // just below the top bar.
+            VStack {
+                Group {
+                    if camera.isFrozen {
+                        Text("FROZEN")
+                    } else {
+                        #if targetEnvironment(simulator)
+                        Text("SIMULATOR")
+                        #endif
+                    }
+                }
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(1.5)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.55), in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                .padding(.top, 56)
+                Spacer()
+            }
+            .allowsHitTesting(false)
         }
+    
+    }
+
+    // MARK: - Complementary colors
+
+    private var complementarySuggestions: [ColorHarmony.Suggestion] {
+        guard let matchName = camera.currentMatch?.name,
+              let namedColor = NamedColor.palette.first(where: { $0.name == matchName })
+        else { return [] }
+        return ColorHarmony.suggestions(for: namedColor)
     }
 
     // MARK: - Version check
@@ -232,14 +317,12 @@ struct RootView: View {
     }
 
     private var settingsMenu: some View {
-        Menu {
-            Button {
-                showCalibrationSheet = true
-            } label: {
-                Label("Calibrate Colors", systemImage: "eyedropper.halffull")
-            }
-
-            Toggle("Diagnostic Mode", isOn: $isDiagnosticModeEnabled)
+        // A sheet rather than a `Menu` because, on some iOS builds, a
+        // Menu { Button { stateChange } } dismisses before the state
+        // mutation propagates and the downstream sheet never presents.
+        // (Same bug we worked around for `loadMenu` via confirmationDialog.)
+        Button {
+            showSettingsSheet = true
         } label: {
             iconButtonLabel(systemName: "gearshape")
         }
@@ -341,83 +424,105 @@ private struct RootCalibrationView: View {
     let currentGreen: Double
     let currentBlue: Double
     @Environment(\.dismiss) private var dismiss
+    @State private var showDoneAlert = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Text("Point at something white or neutral gray, then tap Calibrate to baseline the colors.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
-                // Current reading swatch
-                VStack(spacing: 8) {
-                    Text("Current Reading")
-                        .font(.caption)
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text("Point at something white or neutral gray, then tap Calibrate to baseline the colors.")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(.sRGB, red: currentRed, green: currentGreen, blue: currentBlue, opacity: 1))
-                        .frame(width: 80, height: 80)
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.2), lineWidth: 1))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
 
-                    HStack(spacing: 12) {
-                        Text("R: \(Int(currentRed * 255))")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.red)
-                        Text("G: \(Int(currentGreen * 255))")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.green)
-                        Text("B: \(Int(currentBlue * 255))")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.blue)
+                    // Current reading swatch
+                    VStack(spacing: 10) {
+                        Text("Current Reading")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(.sRGB, red: currentRed, green: currentGreen, blue: currentBlue, opacity: 1))
+                            .frame(width: 140, height: 140)
+                            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.2), lineWidth: 1))
+
+                        HStack(spacing: 12) {
+                            Text("R: \(Int(currentRed * 255))")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.red)
+                            Text("G: \(Int(currentGreen * 255))")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.green)
+                            Text("B: \(Int(currentBlue * 255))")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.blue)
+                        }
                     }
-                }
 
-                Divider()
+                    Divider()
 
-                // Current gains
-                VStack(spacing: 12) {
-                    Text("Calibration Gains")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // Current gains
+                    VStack(spacing: 12) {
+                        Text("Calibration Gains")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
-                    HStack(spacing: 20) {
-                        gainLabel("R", value: redGain, color: .red)
-                        gainLabel("G", value: greenGain, color: .green)
-                        gainLabel("B", value: blueGain, color: .blue)
+                        HStack(spacing: 24) {
+                            gainLabel("R", value: redGain, color: .red)
+                            gainLabel("G", value: greenGain, color: .green)
+                            gainLabel("B", value: blueGain, color: .blue)
+                        }
                     }
-                }
 
-                Spacer()
+                    VStack(spacing: 12) {
+                        Button {
+                            // Calculate gains so current reading becomes ~0.9 (near white but not clipped)
+                            let target: Double = 0.9
+                            if currentRed > 0.01 { redGain = target / currentRed }
+                            if currentGreen > 0.01 { greenGain = target / currentGreen }
+                            if currentBlue > 0.01 { blueGain = target / currentBlue }
+                            Analytics.signal(Analytics.Event.calibrationCompleted, parameters: ["source": "settings"])
+                            showDoneAlert = true
+                        } label: {
+                            Text("Calibrate to White")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
 
-                Button("Calibrate to White") {
-                    // Calculate gains so current reading becomes ~0.9 (near white but not clipped)
-                    let target: Double = 0.9
-                    if currentRed > 0.01 { redGain = target / currentRed }
-                    if currentGreen > 0.01 { greenGain = target / currentGreen }
-                    if currentBlue > 0.01 { blueGain = target / currentBlue }
+                        Button {
+                            redGain = 1.0
+                            greenGain = 1.0
+                            blueGain = 1.0
+                            Analytics.signal(Analytics.Event.calibrationReset, parameters: ["source": "settings"])
+                        } label: {
+                            Text("Reset to Default")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.secondary)
+                        .controlSize(.large)
+                    }
+                    .padding(.top, 8)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                Button("Reset to Default") {
-                    redGain = 1.0
-                    greenGain = 1.0
-                    blueGain = 1.0
-                }
-                .buttonStyle(.bordered)
-                .tint(.secondary)
+                .padding()
             }
-            .padding()
             .navigationTitle("Color Calibration")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
+            .alert("Calibration Complete", isPresented: $showDoneAlert) {
+                Button("Done") { dismiss() }
+            } message: {
+                Text("Your camera is now calibrated to your current lighting. You can recalibrate anytime from Settings.")
+            }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 
     private func gainLabel(_ label: String, value: Double, color: Color) -> some View {
@@ -433,7 +538,7 @@ private struct RootCalibrationView: View {
 
 /// Crosshair drawn over the camera preview. Two-tone (black halo + white
 /// core) so it stays visible against any background.
-private struct Reticle: View {
+struct Reticle: View {
     var body: some View {
         ZStack {
             Circle().strokeBorder(.black.opacity(0.7), lineWidth: 5)
@@ -452,6 +557,45 @@ private struct Reticle: View {
 private struct InspectorImage: Identifiable {
     let id = UUID()
     let image: UIImage
+}
+
+/// Lightweight settings sheet. Replaces the previous `Menu`-based settings
+/// to avoid the SwiftUI bug where a Menu's child Button dismisses before
+/// its state mutation has propagated.
+private struct SettingsSheet: View {
+    @Binding var isDiagnosticModeEnabled: Bool
+    let onCalibrate: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Button {
+                        onCalibrate()
+                    } label: {
+                        Label("Calibrate Colors", systemImage: "eyedropper.halffull")
+                    }
+                }
+
+                Section {
+                    Toggle(isOn: $isDiagnosticModeEnabled) {
+                        Label("Diagnostic Mode", systemImage: "ladybug")
+                    }
+                } footer: {
+                    Text("Shows the DIAG indicator, RGB values, and the color-correction picker on the readout.")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
 }
 
 #Preview { RootView() }

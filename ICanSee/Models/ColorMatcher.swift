@@ -240,3 +240,113 @@ enum ColorMatcher {
         return t > epsilon ? pow(t, 1.0 / 3.0) : (kappa * t + 16) / 116
     }
 }
+
+// MARK: - Color Harmony
+
+/// Computes color harmony suggestions (complementary, split-complementary)
+/// from a detected `NamedColor`, returning results mapped back to the app's
+/// existing palette so every suggestion has a familiar name.
+///
+/// All hue math happens in HSB space derived from the palette entry's sRGB
+/// values. Results are snapped to the nearest `NamedColor.palette` entry via
+/// `ColorMatcher` so the user always sees names they recognise.
+enum ColorHarmony {
+
+    struct Suggestion: Identifiable {
+        let id = UUID()
+        let namedColor: NamedColor
+    }
+
+    /// Returns up to 3 harmony suggestions for the given color:
+    /// 1. Complementary (180° opposite)
+    /// 2. Split-complementary left (150°)
+    /// 3. Split-complementary right (210°)
+    ///
+    /// Neutrals (Black, White, Grays) return an empty array — there's no
+    /// meaningful "complementary" for achromatic colors.
+    static func suggestions(for color: NamedColor) -> [Suggestion] {
+        let hsb = hsbFromRGB(r: color.red, g: color.green, b: color.blue)
+
+        // Skip neutrals — saturation too low for meaningful harmony
+        guard hsb.s > 0.08 else { return [] }
+
+        let complementary = rgbFromHSB(h: rotateHue(hsb.h, by: 180), s: hsb.s, b: hsb.b)
+        let splitLeft = rgbFromHSB(h: rotateHue(hsb.h, by: 150), s: hsb.s, b: hsb.b)
+        let splitRight = rgbFromHSB(h: rotateHue(hsb.h, by: 210), s: hsb.s, b: hsb.b)
+
+        var results: [Suggestion] = []
+
+        let comp = matchToPalette(r: complementary.r, g: complementary.g, b: complementary.b)
+        results.append(Suggestion(namedColor: comp))
+
+        let left = matchToPalette(r: splitLeft.r, g: splitLeft.g, b: splitLeft.b)
+        if left.name != comp.name {
+            results.append(Suggestion(namedColor: left))
+        }
+
+        let right = matchToPalette(r: splitRight.r, g: splitRight.g, b: splitRight.b)
+        if right.name != comp.name && right.name != left.name {
+            results.append(Suggestion(namedColor: right))
+        }
+
+        // Remove duplicates of the source color itself
+        return results.filter { $0.namedColor.name != color.name }
+    }
+
+    // MARK: - Palette lookup
+
+    private static func matchToPalette(r: Double, g: Double, b: Double) -> NamedColor {
+        let match = ColorMatcher.match(red: r, green: g, blue: b)
+        return NamedColor.palette.first { $0.name == match.name }
+            ?? NamedColor.palette[0]
+    }
+
+    // MARK: - HSB ↔ RGB
+
+    private static func hsbFromRGB(r: Double, g: Double, b: Double) -> (h: Double, s: Double, b: Double) {
+        let maxC = max(r, max(g, b))
+        let minC = min(r, min(g, b))
+        let delta = maxC - minC
+
+        let brightness = maxC
+        let saturation = maxC > 0 ? delta / maxC : 0
+
+        var hue: Double = 0
+        if delta > 0 {
+            if maxC == r {
+                hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6)
+            } else if maxC == g {
+                hue = 60 * ((b - r) / delta + 2)
+            } else {
+                hue = 60 * ((r - g) / delta + 4)
+            }
+            if hue < 0 { hue += 360 }
+        }
+
+        return (hue, saturation, brightness)
+    }
+
+    private static func rgbFromHSB(h: Double, s: Double, b: Double) -> (r: Double, g: Double, b: Double) {
+        let c = b * s
+        let x = c * (1 - abs((h / 60).truncatingRemainder(dividingBy: 2) - 1))
+        let m = b - c
+
+        let (r1, g1, b1): (Double, Double, Double)
+        switch h {
+        case 0..<60:    (r1, g1, b1) = (c, x, 0)
+        case 60..<120:  (r1, g1, b1) = (x, c, 0)
+        case 120..<180: (r1, g1, b1) = (0, c, x)
+        case 180..<240: (r1, g1, b1) = (0, x, c)
+        case 240..<300: (r1, g1, b1) = (x, 0, c)
+        default:        (r1, g1, b1) = (c, 0, x)
+        }
+
+        return (r1 + m, g1 + m, b1 + m)
+    }
+
+    private static func rotateHue(_ hue: Double, by degrees: Double) -> Double {
+        var result = (hue + degrees).truncatingRemainder(dividingBy: 360)
+        if result < 0 { result += 360 }
+        return result
+    }
+}

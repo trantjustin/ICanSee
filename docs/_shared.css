@@ -1,22 +1,20 @@
-/* Shared stylesheet for I Am Mindful pages */
+/* Shared stylesheet for app support & privacy pages */
 :root {
     --bg: #ffffff;
     --fg: #1c1c1e;
     --muted: #6e6e73;
-    --accent: #6C6EE0;
-    --accent-2: #4DA9C7;
-    --card: #f6f5fc;
-    --border: #e6e3f1;
+    --accent: #007AFF;
+    --card: #f5f5f7;
+    --border: #e5e5ea;
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg: #0f0d1a;
+        --bg: #000000;
         --fg: #f5f5f7;
-        --muted: #a8a3b8;
-        --accent: #9B9AF0;
-        --accent-2: #6FC5DD;
-        --card: #181530;
-        --border: #2a253f;
+        --muted: #8e8e93;
+        --accent: #0A84FF;
+        --card: #1c1c1e;
+        --border: #2c2c2e;
     }
 }
 * { box-sizing: border-box; }
@@ -24,125 +22,80 @@ html { scroll-behavior: smooth; }
 body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 16px;
     background: var(--bg);
     color: var(--fg);
-    font-size: 16px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
 }
 .wrap {
-    max-width: 760px;
+    max-width: 680px;
     margin: 0 auto;
     padding: 48px 24px 80px;
 }
-header.hero {
+header {
     text-align: center;
-    padding: 24px 0 8px;
+    margin-bottom: 32px;
 }
-header.hero img.icon {
-    width: 80px;
-    height: 80px;
-    border-radius: 28px;
-    box-shadow: 0 8px 28px rgba(108, 110, 224, 0.30);
+header img.icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
     display: block;
-    max-width: 80px;
-    margin: 0 auto 20px;
+    margin: 0 auto 16px;
 }
-h1 {
-    font-size: 1.8rem;
-    font-weight: 800;
-    margin: 0 0 8px;
+header h1 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0 0 6px;
     letter-spacing: -0.02em;
-    background: linear-gradient(120deg, var(--accent), var(--accent-2));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+}
+header .tagline {
+    font-size: 1rem;
+    color: var(--muted);
+    margin: 0;
 }
 h2 {
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin: 36px 0 12px;
-    letter-spacing: -0.01em;
-}
-h3 {
-    font-size: 1.05rem;
-    font-weight: 700;
-    margin: 24px 0 6px;
-}
-p, li { color: var(--fg); }
-.tagline {
     font-size: 1.15rem;
-    color: var(--muted);
-    margin: 0 0 28px;
+    font-weight: 700;
+    margin: 32px 0 12px;
 }
-a {
-    color: var(--accent);
-    text-decoration: none;
-}
+p, li { margin: 0 0 12px; }
+a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 20px 22px;
+    border-radius: 12px;
+    padding: 18px 20px;
     margin: 14px 0;
 }
+.card p:last-child { margin-bottom: 0; }
 .cta {
     display: inline-block;
     background: var(--accent);
-    color: white !important;
-    padding: 12px 22px;
+    color: #fff !important;
+    padding: 10px 20px;
     border-radius: 999px;
     font-weight: 600;
-    margin: 8px 6px 0 0;
+    font-size: 0.95rem;
+    margin: 6px 8px 0 0;
 }
 .cta.secondary {
     background: transparent;
     color: var(--accent) !important;
     border: 1px solid var(--accent);
 }
-.cta:hover { text-decoration: none; opacity: 0.92; }
-.features {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 14px;
-    margin: 16px 0;
-}
-.feature {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 18px;
-}
-.feature .emoji {
-    font-size: 1.6rem;
-    display: block;
-    margin-bottom: 6px;
-}
-.feature strong { display: block; margin-bottom: 4px; }
-.feature span { color: var(--muted); font-size: 0.95rem; }
-ul { padding-left: 20px; }
+.cta:hover { text-decoration: none; opacity: 0.9; }
+ul { padding-left: 20px; margin: 0 0 14px; }
 li { margin: 6px 0; }
-hr {
-    border: 0;
-    border-top: 1px solid var(--border);
-    margin: 40px 0;
-}
-footer {
-    color: var(--muted);
-    font-size: 0.9rem;
-    text-align: center;
-    margin-top: 40px;
-}
-footer a { color: var(--muted); }
 details.faq {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 14px 18px;
     margin: 10px 0;
 }
-details.faq[open] { background: var(--card); }
 details.faq summary {
     cursor: pointer;
     font-weight: 600;
@@ -154,9 +107,26 @@ details.faq summary::after {
     float: right;
     color: var(--muted);
     font-weight: 400;
-    transition: transform 0.15s ease;
 }
-details.faq[open] summary::after {
-    content: "–";
+details.faq[open] summary::after { content: "\2212"; }
+details.faq p, details.faq ul { margin-top: 10px; color: var(--muted); }
+hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 36px 0;
 }
-details.faq p { margin: 10px 0 0; color: var(--muted); }
+footer {
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: center;
+    margin-top: 36px;
+}
+footer a { color: var(--muted); }
+code {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: "SF Mono", ui-monospace, Menlo, Monaco, monospace;
+}

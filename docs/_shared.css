@@ -26,7 +26,8 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--fg);
-    line-height: 1.55;
+    font-size: 16px;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
 }
 .wrap {
@@ -39,15 +40,15 @@ header.hero {
     padding: 24px 0 8px;
 }
 header.hero img.icon {
-    width: 128px;
-    height: 128px;
+    width: 80px;
+    height: 80px;
     border-radius: 28px;
     box-shadow: 0 8px 28px rgba(108, 110, 224, 0.30);
     display: block;
     margin: 0 auto 20px;
 }
 h1 {
-    font-size: 2.4rem;
+    font-size: 1.8rem;
     font-weight: 800;
     margin: 0 0 8px;
     letter-spacing: -0.02em;
@@ -57,7 +58,7 @@ h1 {
     color: transparent;
 }
 h2 {
-    font-size: 1.4rem;
+    font-size: 1.25rem;
     font-weight: 700;
     margin: 36px 0 12px;
     letter-spacing: -0.01em;
